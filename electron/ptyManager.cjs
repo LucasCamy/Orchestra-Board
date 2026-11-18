@@ -7,6 +7,8 @@ const pty = require('node-pty');
 // Il continue de tourner quand on change de tableau ; ses dernières sorties sont gardées
 // pour les réafficher quand la case revient à l'écran.
 const terminals = new Map(); // id -> { term, buffer }
+const closingTerminals = new Set();
+const CLOSE_TIMEOUT = 2000;
 const MAX_BUFFER = 256 * 1024; // caractères
 const terminalSnapshot = ({ buffer, offset, cols, rows }) => ({ buffer, offset, cols, rows });
 
@@ -60,6 +62,8 @@ function create({ id, command, shell, cwd, env, cols = 100, rows = 30, exitOnCom
     rows,
     cwd: safeCwd(cwd),
     env: env ? { ...process.env, ...env } : process.env,
+    // The bundled ConPTY closes the session without racing a console-list helper against teardown.
+    ...(process.platform === 'win32' && { useConptyDll: true }),
   });
 
   const entry = { term, buffer: '', offset: 0, cols, rows };
@@ -70,6 +74,7 @@ function create({ id, command, shell, cwd, env, cols = 100, rows = 30, exitOnCom
     onData(id, data, entry.offset);
   });
   term.onExit(({ exitCode }) => {
+    entry.finishClose?.();
     // Terminal tué puis relancé sous le même id (changement de branche) : la fin de l'ancien ne compte pas.
     if (terminals.get(id) !== entry) return;
     terminals.delete(id);
@@ -113,11 +118,22 @@ function kill(id) {
   if (!entry) return;
   terminals.delete(id);
   clearTimeout(entry.start);
+  if (process.platform === 'win32') {
+    const { promise, resolve } = Promise.withResolvers();
+    closingTerminals.add(promise);
+    const timeout = setTimeout(() => entry.finishClose(), CLOSE_TIMEOUT).unref();
+    entry.finishClose = () => {
+      clearTimeout(timeout);
+      closingTerminals.delete(promise);
+      resolve();
+    };
+  }
   entry.term.kill();
 }
 
 function killAll() {
   for (const id of [...terminals.keys()]) kill(id);
+  return Promise.all(closingTerminals);
 }
 
 module.exports = { create, write, buffer, snapshot, resize, kill, killAll, ids: () => [...terminals.keys()] };

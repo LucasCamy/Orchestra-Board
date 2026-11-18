@@ -86,8 +86,8 @@ for (const mode of modes) {
   const branded = process.env.ORCHESTRA_SMOKE_BRANDED === '1';
   const result = spawnSync(branded ? path.join(root, 'node_modules', 'electron', 'dist', 'Orchestra.exe') : process.execPath, branded ? [data] : [path.join(root, 'node_modules', 'electron', 'cli.js'), data], { cwd: root, env, encoding: 'utf8', timeout: 90000, windowsHide: true });
   process.stdout.write(result.stdout || '');
-  if (result.status !== 0) {
-    process.stderr.write(result.stderr || String(result.error || 'Electron smoke failed'));
+  if (result.status !== 0 || result.stderr?.includes('AttachConsole failed')) {
+    process.stderr.write(result.stderr || String(result.error || `Electron smoke failed (status ${result.status}, signal ${result.signal})`));
     process.stderr.write(`\nTest data preserved: ${data}\n`);
     process.exit(1);
   }

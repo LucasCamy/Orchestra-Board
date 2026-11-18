@@ -158,11 +158,11 @@ app.on('browser-window-created', (_event, win) => {
       await domUntil("!document.querySelector('.search-palette') && !!document.querySelector('.react-flow__node[data-id=\"b\"].selected')");
 
       await evaluate("document.querySelector('.teams-toggle').click()");
-      await domUntil("document.querySelectorAll('.team-item').length === 3");
+      await domUntil(`document.querySelector('.team-item')?.textContent.includes(${JSON.stringify(fr ? 'Développeur + relecteur' : 'Developer + reviewer')})`);
       await evaluate("[...document.querySelectorAll('.team-modal [role=tab]')].find(button => button.textContent === " + JSON.stringify(fr ? 'Enregistrer ce tableau' : 'Save this board') + ").click()");
       await set('.team-modal input[type=text]', 'Restored team');
       await evaluate("[...document.querySelectorAll('.team-modal button')].find(button => button.textContent.trim() === " + JSON.stringify(fr ? 'Enregistrer comme modèle' : 'Save as a template') + ").click()");
-      await domUntil("document.querySelectorAll('.team-item').length === 4");
+      await domUntil("document.querySelector('.team-item.active strong')?.textContent === 'Restored team'");
       const savedTeam = JSON.parse(fs.readFileSync(path.join(data, 'team-templates.json'), 'utf8'))[0];
       assert.equal(savedTeam.name, 'Restored team');
       assert.equal(savedTeam.board.nodes.length, 2);

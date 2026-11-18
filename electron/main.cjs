@@ -717,15 +717,27 @@ app.whenReady().then(async () => {
   createWindow();
 });
 
-// Pas de processus orphelins : on tue tous les agents en quittant.
-app.on('before-quit', () => {
-  visualTests.dispose();
-  noteFiles.dispose();
-  taskSequences?.dispose();
-  linkRelay.dispose();
-  subagents.closeAll();
-  ptyManager.killAll();
-  antigravityHooks.clearAll();
-  usage.stop();
+// Keep Electron's event loop alive while ConPTY reports the closed terminals.
+let shutdown = 'idle';
+app.on('before-quit', async (event) => {
+  if (shutdown === 'ready') return;
+  event.preventDefault();
+  if (shutdown === 'closing') return;
+  shutdown = 'closing';
+  try {
+    visualTests.dispose();
+    noteFiles.dispose();
+    taskSequences?.dispose();
+    linkRelay.dispose();
+    subagents.closeAll();
+    await ptyManager.killAll();
+    antigravityHooks.clearAll();
+    usage.stop();
+  } catch (error) {
+    console.error('Shutdown cleanup failed:', error.message);
+  } finally {
+    shutdown = 'ready';
+    app.quit();
+  }
 });
 app.on('window-all-closed', () => app.quit());
