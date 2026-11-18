@@ -1,7 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { app, BrowserWindow, Menu, Notification, dialog, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, dialog, ipcMain, safeStorage, session, shell } = require('electron');
 const ptyManager = require('./ptyManager.cjs');
 const fsHandlers = require('./fsHandlers.cjs');
 const settingsStore = require('./settingsStore.cjs');
@@ -37,6 +37,7 @@ const teamTemplates = require('./teamTemplates.cjs');
 const { createBlockers } = require('./blockers.cjs');
 const { createRoleState } = require('./roleState.cjs');
 const { createTaskSequences } = require('./taskSequences.cjs');
+const { createLinearCredentials, createLinearSync } = require('./linearSync.cjs');
 
 let win;
 let quitConfirmed = false;
@@ -45,6 +46,43 @@ let sequenceNodes = [];
 const mcpCatalog = () => createMcpCatalog(app.getPath('userData'));
 const isBoardFrame = (event) => win && event.sender === win.webContents && event.senderFrame === event.sender.mainFrame;
 const interactiveBrowser = createInteractiveBrowser();
+const linearCredentials = createLinearCredentials(() => path.join(app.getPath('userData'), 'linear-key'), safeStorage);
+const linear = createLinearSync({ getKey: linearCredentials.read, emit: (change) => send('linear:issueChanged', change) });
+
+ipcMain.handle('linear:connection', async (event) => isBoardFrame(event) ? { configured: Boolean(await linearCredentials.read()) } : null);
+ipcMain.handle('linear:saveKey', async (event, key) => {
+  if (!isBoardFrame(event)) return { error: 'invalidScope' };
+  const error = await linearCredentials.save(typeof key === 'string' ? key.trim() : key);
+  if (error) return { error };
+  send('linear:issueChanged', { connectionChanged: true });
+  return { configured: !!key.trim() };
+});
+ipcMain.handle('linear:fetchIssues', (event, scope) => isBoardFrame(event) ? linear.fetchIssues(scope ?? {}) : { error: 'invalidScope' });
+ipcMain.handle('linear:updateIssueStatus', async (event, input, context) => {
+  if (!isBoardFrame(event)) return { error: 'invalidScope' };
+  const result = await linear.updateIssueStatus(input ?? {});
+  if (!result.changed || result.issue.status !== 'inProgress' || !context) return result;
+  const board = workspaceStore.get().boards.find(({ id }) => id === context.boardId);
+  if (!board?.nodes.some((node) => node.id === context.nodeId && node.type === 'linearBoard')) return result;
+  const targets = new Set();
+  for (const edge of board.edges) {
+    if (edge.source !== context.nodeId || edge.data.mode !== 'linear' || !edge.data.enabled || targets.has(edge.target)) continue;
+    const target = board.nodes.find((node) => node.id === edge.target && node.type === 'terminal');
+    if (!target || !configuredAgent(target.data.agentId)?.hooks) continue;
+    targets.add(edge.target);
+    if (!agentStatus.info(edge.target)?.ready) {
+      emitLink(edge.id, { state: 'error', message: t('link.targetNotRunning') });
+      continue;
+    }
+    linkRelay.enqueue(edge.target, {
+      id: edge.id, from: edge.source, kind: 'delegate',
+      text: t('linear.delegationPrompt', { identifier: result.issue.identifier }),
+      stillValid: () => workspaceStore.get().boards.find(({ id }) => id === board.id)?.edges.some((current) =>
+        current.id === edge.id && current.source === edge.source && current.target === edge.target && current.data.mode === 'linear' && current.data.enabled),
+    });
+  }
+  return result;
+});
 
 ipcMain.handle('browser:register', (event, ...args) => isBoardFrame(event) && interactiveBrowser.register(event.sender, ...args));
 ipcMain.handle('browser:cookies', (event, guestId, url) => isBoardFrame(event) ? interactiveBrowser.cookies(event.sender, guestId, url) : null);
@@ -350,6 +388,7 @@ function trackSession(id, payload) {
 // Début de session : la réponse au hook dit à l'agent qu'il tourne dans Orchestra et lui donne son rôle
 // (même format pour Claude Code et Codex). Ce contexte n'est pas affiché dans le terminal.
 function onHook(id, payload) {
+  if (caseAgents.has(id) || subagents.kind(id)) linear.onHook(payload);
   if (isSubagent(id)) {
     const hook = subagents.kind(id) === 'antigravity' ? antigravityHooks.normalize(payload) : payload;
     if (hook) subagents.onHook(id, hook);

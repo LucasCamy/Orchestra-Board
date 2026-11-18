@@ -5,6 +5,12 @@ const settingsStore = require('./settingsStore.cjs');
 
 const DICTIONARIES = {
   en: {
+    'linear.boardTitle': 'Linear Board',
+    'linear.todo': 'Todo',
+    'linear.inProgress': 'In Progress',
+    'linear.inReview': 'In Review',
+    'linear.done': 'Done',
+    'linear.delegationPrompt': 'Start implementing Linear issue {identifier}. Read the issue and its acceptance criteria in Linear, then follow your Orchestra role.',
     'sequences.invalid': 'Enter a task name, an agent and a non-empty prompt for each step (50 steps, 20,000 characters per prompt maximum). Control characters are not allowed.',
     'sequences.storage': 'Task storage could not be read or saved. Automatic execution is disabled to preserve the existing file.',
     'sequences.missing': 'Task not found.',
@@ -260,6 +266,12 @@ const DICTIONARIES = {
     'terminal.notFinished': '(the command is still running, its prompt has not come back: read the rest with read_terminal, stop it with interrupt_terminal)',
   },
   fr: {
+    'linear.boardTitle': 'Tableau Linear',
+    'linear.todo': 'À faire',
+    'linear.inProgress': 'En cours',
+    'linear.inReview': 'En revue',
+    'linear.done': 'Terminé',
+    'linear.delegationPrompt': 'Commence à réaliser le ticket Linear {identifier}. Lis le ticket et ses critères d’acceptation dans Linear, puis suis ton rôle dans Orchestra.',
     'sequences.invalid': 'Renseigne un nom, un agent et un prompt non vide par étape (50 étapes, 20 000 caractères par prompt maximum). Les caractères de contrôle sont interdits.',
     'sequences.storage': 'Impossible de lire ou d’enregistrer les tâches. L’exécution automatique est désactivée pour préserver le fichier existant.',
     'sequences.missing': 'Tâche introuvable.',

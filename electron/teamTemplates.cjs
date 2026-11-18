@@ -199,6 +199,10 @@ function instantiate(id, cwd, replacements = {}, agents = settings.load().agents
     const target = byId.get(edge.target);
     const sourceAgent = agents.find((agent) => agent.id === source?.data.agentId);
     const targetAgent = agents.find((agent) => agent.id === target?.data.agentId);
+    if (edge.data.mode === 'linear') {
+      if (source?.type !== 'linearBoard' || !targetAgent?.hooks) throw new Error(t('team.incompatible'));
+      continue;
+    }
     const terminalRelay = edge.data.mode === 'relay' && edge.data.terminalFallback;
     if (!terminalRelay && !sourceAgent?.hooks) throw new Error(t('team.incompatible'));
     if (edge.data.mode === 'delegate' && !targetAgent?.hooks) throw new Error(t('team.incompatible'));

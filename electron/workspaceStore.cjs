@@ -6,6 +6,7 @@ const { sanitizeSession } = require('./sessionState.cjs');
 const { isSubagent } = require('./subagents.cjs');
 const { configuration: visualTestConfiguration, sanitizeResult: sanitizeVisualTestResult } = require('./visualTestRunner.cjs');
 const { sanitizeBrowserData } = require('./browserModel.mjs');
+const { sanitizeLinearBoard } = require('./linearModel.mjs');
 const { randomUUID } = require('crypto');
 
 // Tableaux et disposition de chaque map (PLAN.md §3.4), dans userData/workspace.json.
@@ -61,6 +62,8 @@ function sanitizeData(type, data = {}) {
     }
     case 'interactiveBrowser':
       return sanitizeBrowserData(data);
+    case 'linearBoard':
+      return sanitizeLinearBoard(data);
     case 'panel': // Utilisation ou Journal posé sur la map (PLAN.md §3.24)
       if (data.panel === 'usage') return { panel: 'usage', ...(USAGE_AGENTS.includes(data.agentId) && { agentId: data.agentId }) };
       return { panel: 'log' };
@@ -71,7 +74,7 @@ function sanitizeData(type, data = {}) {
 
 function sanitizeNode(n) {
   // Internal agent IDs and runtime tab data never enter workspace saves or templates.
-  if (!n || !ID.test(n.id) || isSubagent(n.id) || !['terminal', 'note', 'text', 'panel', 'visualTest', 'interactiveBrowser'].includes(n.type)) return null;
+  if (!n || !ID.test(n.id) || isSubagent(n.id) || !['terminal', 'note', 'text', 'panel', 'visualTest', 'interactiveBrowser', 'linearBoard'].includes(n.type)) return null;
   if (!isNum(n.position?.x) || !isNum(n.position?.y)) return null;
   const style = {};
   if (size(n.style?.width)) style.width = n.style.width;
@@ -90,6 +93,7 @@ function sanitizeNode(n) {
 // Réglages d'un lien (PLAN.md §3.5, §3.11, §3.17) : type (Transmission, Délégation, Terminal ou Note), consigne avec {reponse}, limite de tours, actif ou non,
 // dans les deux sens ou non.
 function sanitizeLink(data = {}) {
+  if (data.mode === 'linear') return { mode: 'linear', enabled: data.enabled === true };
   return {
     mode: ['delegate', 'terminal', 'note', 'visual', 'browser'].includes(data.mode) ? data.mode : 'relay',
     bidirectional: data.bidirectional === true,
@@ -104,18 +108,26 @@ function sanitizeLink(data = {}) {
 // Contenu d'un tableau : cases, liens, dessins et vue.
 function sanitizeContent(input) {
   const nodes = (Array.isArray(input?.nodes) ? input.nodes : []).map(sanitizeNode).filter(Boolean);
-  const ids = new Set(nodes.map((n) => n.id));
+  const types = new Map(nodes.map((n) => [n.id, n.type]));
   const grouped = new Set();
   const groupIds = new Set();
   const groups = (Array.isArray(input?.groups) ? input.groups : []).slice(0, 200).flatMap((group) => {
     if (!group || !ID.test(group.id) || groupIds.has(group.id) || typeof group.name !== 'string' || !group.name.trim() || !Array.isArray(group.members)) return [];
     groupIds.add(group.id);
-    const members = [...new Set(group.members.filter((id) => ids.has(id) && !grouped.has(id)))];
+    const members = [...new Set(group.members.filter((id) => types.has(id) && !grouped.has(id)))];
     members.forEach((id) => grouped.add(id));
     return members.length ? [{ id: group.id, name: group.name.trim().slice(0, MAX_NAME), members }] : [];
   });
   const edges = (Array.isArray(input?.edges) ? input.edges : [])
-    .filter((e) => e && ID.test(e.id) && ids.has(e.source) && ids.has(e.target))
+    .filter((e) => {
+      if (!e || !ID.test(e.id) || !types.has(e.source) || !types.has(e.target)) return false;
+      const source = types.get(e.source);
+      const target = types.get(e.target);
+      if (source === 'linearBoard' || target === 'linearBoard' || e.data?.mode === 'linear') {
+        return source === 'linearBoard' && target === 'terminal' && e.data?.mode === 'linear';
+      }
+      return true;
+    })
     .map((e) => {
       const data = sanitizeLink(e.data);
       return { id: e.id, source: e.source, target: e.target, type: 'floating', data };

@@ -1,4 +1,5 @@
 import { BROWSER_DRAG_HANDLE } from '../../electron/browserModel.mjs';
+import { LINEAR_DRAG_HANDLE } from '../../electron/linearModel.mjs';
 
 // Passage entre l'état d'un tableau et workspace.json (validé côté Node par electron/workspaceStore.cjs).
 
@@ -30,6 +31,7 @@ export function deserializeBoard(saved) {
 export function restoreToolDragHandle(node) {
   if (node.type === 'visualTest') return { ...node, dragHandle: '.visual-test-header' };
   if (node.type === 'interactiveBrowser') return { ...node, dragHandle: BROWSER_DRAG_HANDLE };
+  if (node.type === 'linearBoard') return { ...node, dragHandle: LINEAR_DRAG_HANDLE };
   return node;
 }
 

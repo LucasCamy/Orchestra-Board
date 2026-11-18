@@ -11,9 +11,9 @@ import useT from '../hooks/useT.js';
 const TABS = ['appearance', 'agents', 'mcp', 'general', 'diagnostics', 'shortcuts'];
 
 // Fenêtre de paramètres centrée (PLAN.md §3.3) : fermeture par ×, Échap ou clic à côté.
-export default function SettingsModal({ onClose, onStartTutorial, onStartSetup, boardId, boardName, nodes, mcpCardId }) {
+export default function SettingsModal({ onClose, onStartTutorial, onStartSetup, boardId, boardName, nodes, mcpCardId, initialTab }) {
   const t = useT();
-  const [tab, setTab] = useState(mcpCardId ? 'mcp' : 'appearance');
+  const [tab, setTab] = useState(initialTab ?? (mcpCardId ? 'mcp' : 'appearance'));
 
   useEffect(() => {
     const onKeyDown = (event) => {

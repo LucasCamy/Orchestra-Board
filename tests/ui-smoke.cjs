@@ -9,7 +9,7 @@ fs.mkdirSync(artifacts, { recursive: true });
 const original = { version: 2, activeBoardId: 'board-1', boards: [{ id: 'board-1', name: 'Original', nodes: [{ id: 'note-1', type: 'note', position: { x: 100, y: 100 }, data: { label: 'Plan', text: 'Restored original note' } }], edges: [], strokes: [], viewport: { x: 0, y: 0, zoom: 1 } }] };
 const requested = process.argv.slice(2);
 const defaultModes = ['normal', 'corrupt', 'no-backup', 'phase2', 'phase2-fr', 'phase3', 'phase3-fr', 'changes', 'phase4', 'phase4-fr', 'onboarding', 'onboarding-fr', 'panels'];
-const modes = requested.length ? [...defaultModes, 'visual-test', 'interactive-browser', 'mcp-relay', 'team-presets', 'subagent-tabs'].filter((mode) => requested.includes(mode)) : defaultModes;
+const modes = requested.length ? [...defaultModes, 'visual-test', 'interactive-browser', 'linear-board', 'mcp-relay', 'team-presets', 'subagent-tabs'].filter((mode) => requested.includes(mode)) : defaultModes;
 if (!modes.length) throw new Error('Choose a mode from tests/ui-smoke.cjs');
 for (const mode of modes) {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestra-ui-'));
@@ -67,6 +67,11 @@ for (const mode of modes) {
       data: { mode: 'relay', prompt: 'Check {response}', terminalFallback: true, review: true },
     }];
     fs.writeFileSync(path.join(data, 'workspace.json'), JSON.stringify({ ...phase2, boards: [{ ...phase2.boards[0], edges }] }));
+  }
+  if (mode === 'linear-board') {
+    const lead = { ...liveTerminal, id: 'lead', position: { x: 1050, y: 60 }, data: { agentId: 'codex', label: 'Tech Lead', cwd: data } };
+    fs.writeFileSync(path.join(data, 'workspace.json'), JSON.stringify({ ...original,
+      boards: [{ ...original.boards[0], viewport: { x: 0, y: 0, zoom: 0.7 }, nodes: [lead] }] }));
   }
   const env = { ...process.env, ORCHESTRA_SMOKE_DATA: data, ORCHESTRA_SMOKE_MODE: mode, ORCHESTRA_SMOKE_ARTIFACTS: artifacts };
   if (mode === 'subagent-tabs') {

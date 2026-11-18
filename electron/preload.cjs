@@ -150,6 +150,18 @@ contextBridge.exposeInMainWorld('mcpSettings', {
   save: (boardId, cardId, change) => ipcRenderer.invoke('mcp:save', boardId, cardId, change),
 });
 
+contextBridge.exposeInMainWorld('linearBoard', {
+  connection: () => ipcRenderer.invoke('linear:connection'),
+  saveKey: (key) => ipcRenderer.invoke('linear:saveKey', key),
+  fetchIssues: (scope) => ipcRenderer.invoke('linear:fetchIssues', scope),
+  updateIssueStatus: (input, context) => ipcRenderer.invoke('linear:updateIssueStatus', input, context),
+  onIssueChanged: (callback) => {
+    const listener = (_event, change) => callback(change);
+    ipcRenderer.on('linear:issueChanged', listener);
+    return () => ipcRenderer.removeListener('linear:issueChanged', listener);
+  },
+});
+
 // Diagnostic des intégrations : commande trouvée, version, dernier hook de chaque case lancée.
 contextBridge.exposeInMainWorld('diagnostics', {
   agents: () => ipcRenderer.invoke('diag:agents'),
