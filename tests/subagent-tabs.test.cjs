@@ -37,10 +37,10 @@ function setup() {
   });
   const hook = (id, event, payload) => service.onHook(id, { hook_event_name: event, session_id: 'child-session', turn_id: 'child-turn', ...payload });
   const submit = (id) => {
-    hook(id, 'SessionStart');
     service.onOutput(id, '\x1b[?20');
     service.onOutput(id, '04h');
     time.tick(250);
+    hook(id, 'SessionStart');
     hook(id, 'UserPromptSubmit');
   };
   return { time, service, events, launches, writes, outputs, hook, submit };

@@ -36,6 +36,15 @@ function safeCwd(cwd) {
   return os.homedir();
 }
 
+// A dedicated command shell exits with the CLI. Its input never falls back to a shell prompt.
+function commandArgs(shell, command) {
+  if (/cmd\.exe$/i.test(shell)) return `/d /s /c "${command}"`;
+  if (/(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell)) {
+    return ['-NoLogo', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')];
+  }
+  return ['-lc', command];
+}
+
 // command et shell viennent des paramètres, lus côté Node (jamais envoyés par l'interface).
 // Renvoie { buffer } : vide pour un nouveau terminal, les dernières sorties s'il tournait déjà.
 // env : variables ajoutées à celles de l'app (adresse d'Orchestra pour les hooks de Codex).
@@ -44,7 +53,8 @@ function create({ id, command, shell, cwd, env, cols = 100, rows = 30, exitOnCom
   if (terminals.has(id)) return { buffer: terminals.get(id).buffer };
 
   const executable = resolveShell(shell);
-  const term = pty.spawn(executable, [], {
+  const args = exitOnCommand && command ? commandArgs(executable, command) : [];
+  const term = pty.spawn(executable, args, {
     name: 'xterm-256color',
     cols,
     rows,
@@ -70,11 +80,9 @@ function create({ id, command, shell, cwd, env, cols = 100, rows = 30, exitOnCom
 
   // On démarre un shell puis on tape la commande de l'agent :
   // le PATH de l'utilisateur est chargé et le terminal reste ouvert si l'agent quitte.
-  if (command) {
-    // Internal agents must exit with their CLI, without leaving a shell in the tab.
-    const suffix = exitOnCommand ? (/cmd\.exe$/i.test(executable) ? ' & exit' : '; exit') : '';
+  if (command && !exitOnCommand) {
     entry.start = setTimeout(() => {
-      if (terminals.get(id) === entry) term.write(command + suffix + '\r');
+      if (terminals.get(id) === entry) term.write(command + '\r');
     }, 300);
   }
   return { buffer: '' };

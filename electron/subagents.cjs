@@ -102,7 +102,9 @@ function createSubagents({ parent, agent, launch, stop, write, snapshot, emit, l
   }
 
   function trySubmit(entry) {
-    if (entry.phase !== 'starting' || !entry.ready || !entry.bracketed) return;
+    // Codex can fire SessionStart on the first submitted prompt. Its dedicated PTY
+    // has no shell prompt, so bracketed paste is enough to recognize the CLI there.
+    if (entry.phase !== 'starting' || !entry.bracketed || (!entry.ready && entry.hooks !== 'codex')) return;
     entry.phase = 'pasting';
     if (!writePrompt(entry, '\x1b[200~' + entry.prompt.replace(/\r\n?|\n/g, '\r') + '\x1b[201~')) return;
     delete entry.prompt;

@@ -15,7 +15,7 @@ for (const mode of modes) {
   const data = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestra-ui-'));
   fs.writeFileSync(path.join(data, 'package.json'), JSON.stringify({ name: 'orchestra-smoke', version: require('../package.json').version, main: path.join(__dirname, 'ui-entry.cjs') }));
   fs.writeFileSync(path.join(data, 'settings.json'), JSON.stringify({
-    general: { tutorialDone: !mode.startsWith('onboarding'), checkUpdates: false, language: mode.endsWith('-fr') || mode === 'corrupt' ? 'fr' : 'en', rootPath: data, shell: 'cmd', trustFolders: false, confirmClose: false },
+    general: { tutorialDone: !mode.startsWith('onboarding'), checkUpdates: false, language: mode.endsWith('-fr') || mode === 'corrupt' ? 'fr' : 'en', rootPath: data, shell: mode === 'subagent-tabs' ? 'default' : 'cmd', trustFolders: false, confirmClose: false },
     ...(mode === 'team-presets' && { agents: [{ id: 'antigravity' }] }),
   }));
   fs.writeFileSync(path.join(data, 'agent-board-imported'), '');

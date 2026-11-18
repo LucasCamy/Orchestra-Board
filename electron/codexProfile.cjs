@@ -42,6 +42,7 @@ function profileContent() {
     'env = { ELECTRON_RUN_AS_NODE = "1" }',
     'env_vars = ["ORCHESTRA_URL"]',
     'default_tools_approval_mode = "approve"',
+    'supports_parallel_tool_calls = true',
     'tool_timeout_sec = 330', // wait_for_replies peut attendre 5 min
     '',
     // Codex demande la permission avant de lancer une commande dans un terminal relié (PLAN.md §3.17).

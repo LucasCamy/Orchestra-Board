@@ -11,13 +11,13 @@ async function run() {
     if (data.includes('\x03')) process.exit(0);
     input += data;
     if (!input.includes('\x1b[201~\r')) return;
+    await post('SessionStart');
     await post('UserPromptSubmit');
     process.stdout.write('\r\nCHILD OUTPUT: ' + input.match(/\x1b\[200~(.*?)\x1b\[201~/s)[1] + '\r\n');
     input = '';
     setTimeout(() => post('Stop', { last_assistant_message: 'Child summary' }), 1500);
   });
   process.stdout.write('Child terminal ready\r\n\x1b[?2004h');
-  await post('SessionStart');
 }
 
 run().catch((error) => { console.error(error.message); process.exit(1); });
