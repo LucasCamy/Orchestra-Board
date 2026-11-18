@@ -8,7 +8,7 @@ const data = process.env.ORCHESTRA_SMOKE_DATA;
 if (!data || !path.basename(data).startsWith('orchestra-ui-') || path.dirname(data) !== fs.realpathSync(os.tmpdir())) throw new Error('Isolated test data required');
 const mode = process.env.ORCHESTRA_SMOKE_MODE;
 setTimeout(() => { console.error(`Electron UI test timed out: ${mode}`); app.exit(1); }, mode.startsWith('phase4') ? 90000 : 60000);
-app.commandLine.appendSwitch('force-prefers-reduced-motion');
+if (mode !== 'linear-board') app.commandLine.appendSwitch('force-prefers-reduced-motion');
 app.setPath('userData', data);
 app.setPath('appData', path.join(data, 'appdata'));
 process.env.CODEX_HOME = path.join(data, 'codex');
@@ -25,6 +25,7 @@ if (process.platform === 'win32') {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const linearBoard = mode === 'linear-board' ? require('./ui-linear-board.cjs').prepare() : null;
 app.on('browser-window-created', (_event, win) => {
   win.webContents.setBackgroundThrottling(false);
   let started = false;
@@ -78,9 +79,21 @@ app.on('browser-window-created', (_event, win) => {
         app.quit();
         return;
       }
+      if (linearBoard) {
+        await linearBoard({ win, evaluate, until, sleep, data, errors });
+        console.log('PASS UI linear-board: Dock, encrypted preferences, card transitions, MCP and delegation');
+        app.quit();
+        return;
+      }
       if (mode === 'mcp-relay') {
         await require('./ui-mcp-relay.cjs')({ evaluate, until, sleep, data, errors });
         console.log('PASS UI mcp-relay: board and card scope, CMD output relayed for review');
+        app.quit();
+        return;
+      }
+      if (mode === 'subagent-tabs') {
+        await require('./ui-subagent-tabs.cjs')({ win, evaluate, until, errors });
+        console.log('PASS UI subagent-tabs: MCP, ConPTY, tab switching, live comparison and close');
         app.quit();
         return;
       }

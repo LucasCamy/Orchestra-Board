@@ -11,6 +11,41 @@ const PROTOCOL_VERSION = '2025-06-18';
 // annotations : ce que fait vraiment le handler côté Orchestra (delegation, terminalLink, noteLink), pas son nom.
 const TOOLS = [
   {
+    name: 'orchestra_spawn_subagent',
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+    description:
+      'Starts a new agent session in an internal tab of your current Orchestra card, in the same working folder. ' +
+      'Give it a self-contained task and ask for a concise final response. Returns the tab ID, status and final summary, ' +
+      'or the current status after five minutes. Calls can run in parallel; use orchestra_list_subagents to check unfinished tasks.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', minLength: 1, maxLength: 80, description: 'Short task title displayed on the tab.' },
+        prompt: { type: 'string', minLength: 1, maxLength: 20000, description: 'Complete task instructions for the new session.' },
+        agentId: { type: 'string', enum: ['claude-code', 'codex', 'antigravity'], description: 'Configured agent type. Defaults to the agent on this card.' },
+      },
+      required: ['title', 'prompt'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'orchestra_list_subagents',
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description: 'Lists the open sub-agent tabs on your card, with their IDs, status and any final summaries.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'orchestra_close_subagent',
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    description: 'Ends a sub-agent session on your card and removes its tab and output. This interrupts any work still running.',
+    inputSchema: {
+      type: 'object',
+      properties: { subagentId: { type: 'string', description: 'Tab ID from orchestra_spawn_subagent or orchestra_list_subagents.' } },
+      required: ['subagentId'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'list_agents',
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     description:

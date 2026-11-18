@@ -4,12 +4,14 @@ import { DEFAULT_LINK, LINK_MODES, MAX_TURNS } from '../lib/links.js';
 import usePendingMessages from '../hooks/usePendingMessages.js';
 import useT from '../hooks/useT.js';
 import PendingMessage from './PendingMessage.jsx';
+import LinearLogo from './LinearLogo.jsx';
 
 const CONTEXT_LINKS = {
   note: { Icon: StickyNote, warning: 'link.warnNote' },
   terminal: { Icon: SquareTerminal, warning: 'link.warnTerminal' },
   visual: { Icon: MonitorCheck, warning: 'link.warnVisual' },
   browser: { Icon: Globe, warning: 'link.warnBrowser' },
+  linear: { Icon: LinearLogo },
 };
 
 function statusText(event, nameOf, t) {
@@ -34,7 +36,7 @@ export default function LinkPanel({ edge, nodes, event, onChange, onSwap, onDele
   const caseOf = (id) => {
     const node = nodes.find((n) => n.id === id);
     const agent = agentById(node?.data.agentId);
-    const toolNames = { note: 'note.defaultName', visualTest: 'tool.visualTest', interactiveBrowser: 'dock.browser' };
+    const toolNames = { note: 'note.defaultName', visualTest: 'tool.visualTest', interactiveBrowser: 'dock.browser', linearBoard: 'dock.linear' };
     const name = toolNames[node?.type] ? t(toolNames[node.type]) : agent.name;
     return { name: node?.data.label || name, agent };
   };
@@ -65,13 +67,14 @@ export default function LinkPanel({ edge, nodes, event, onChange, onSwap, onDele
           {t(`link.mode.${link.mode}`)}
         </p>
         <p className="hint">{t(`link.mode.${link.mode}.description`)}</p>
-        {!source.agent.hooks && <p className="link-warning">{t(warning, { name: source.name })}</p>}
-        {['visual', 'browser'].includes(link.mode) && (
+        {warning && !source.agent.hooks && <p className="link-warning">{t(warning, { name: source.name })}</p>}
+        {['visual', 'browser', 'linear'].includes(link.mode) && (
           <label className="checkbox link-toggle">
             <input type="checkbox" checked={link.enabled} onChange={(event) => onChange({ enabled: event.target.checked })} />
-            {t('link.enabled')}
+            {t(link.mode === 'linear' ? 'linear.enableDelegation' : 'link.enabled')}
           </label>
         )}
+        {link.mode === 'linear' && event && <p className="hint" role="status">{statusText(event, nameOf, t)}</p>}
         {link.mode === 'terminal' && (
           <button className="text-button" onClick={() => {
             onSwap();

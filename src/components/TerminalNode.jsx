@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Handle, NodeResizer, Position, useReactFlow, useStoreApi } from '@xyflow/react';
-import { Drama, FileDiff, GitBranch, History, Maximize2, MessageSquarePlus, RotateCcw, X } from 'lucide-react';
+import { Columns2, Drama, FileDiff, GitBranch, History, Maximize2, MessageSquarePlus, RotateCcw, X } from 'lucide-react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import AgentLogo from './AgentLogo.jsx';
@@ -8,7 +8,9 @@ import BranchBar from './BranchBar.jsx';
 import ChangesDialog from './ChangesDialog.jsx';
 import FinishBubble from './FinishBubble.jsx';
 import RoleEditor from './RoleEditor.jsx';
+import SessionTerminal from './SessionTerminal.jsx';
 import StatusDot from './StatusDot.jsx';
+import { SubagentDialog, SubagentTabs } from './SubagentTabs.jsx';
 import TerminalTitle from './TerminalTitle.jsx';
 import { useBoard } from '../context/BoardContext.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
@@ -27,7 +29,8 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
   const { settings, agentById } = useSettings();
   const t = useT();
   const { boardId, tool, linkSource, branchTarget, branchPicker, setBranchPicker, resumeChoice, renameRequest, maximized, setMaximized, maxSlot } = useBoard();
-  const bodyRef = useRef(null);
+  const contentHome = useRef(null);
+  const contentRef = useRef(null);
   const { theme, accent, terminalFontSize } = settings.appearance;
   const [exited, setExited] = useState(false);
   const [status, setStatus] = useState('idle');
@@ -37,6 +40,12 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
   const [inRepo, setInRepo] = useState(false);
   const [showingChanges, setShowingChanges] = useState(false);
   const [resumeError, setResumeError] = useState('');
+  const [subagents, setSubagents] = useState([]);
+  const [activeSubagent, setActiveSubagent] = useState(null);
+  const [comparing, setComparing] = useState(false);
+  const tabsId = useId();
+  const tabId = (session) => `${tabsId}-tab-${session ?? 'main'}`;
+  const panelId = (session) => `${tabsId}-pane-${session ?? 'main'}`;
   const launching = useRef(false);
   const [roleState, setRoleState] = useState(null);
   const { deleteElements, updateNodeData } = useReactFlow();
@@ -58,6 +67,19 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
     let changed = false;
     const off = window.roles.onChange(id, (state) => { changed = true; setRoleState(state); });
     window.roles.get(id).then((state) => { if (!disposed && !changed) setRoleState(state); });
+    return () => { disposed = true; off(); };
+  }, [id]);
+
+  useEffect(() => {
+    let disposed = false;
+    let changed = false;
+    const update = (list) => {
+      setSubagents(list);
+      setActiveSubagent((current) => list.some(({ id }) => id === current) ? current : null);
+      if (!list.length) setComparing(false);
+    };
+    const off = window.subagents.onChange(id, (list) => { changed = true; update(list); });
+    window.subagents.list(id).then((list) => { if (!disposed && !changed) update(list); }).catch(() => {});
     return () => { disposed = true; off(); };
   }, [id]);
 
@@ -97,7 +119,8 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
     // d'abord ses dernières sorties : ce qui arrive avant est déjà dedans, on le met de côté.
     let disposed = false;
     let ready = askResumeAtMount.current;
-    const offInput = term.onData((d) => window.pty.write(id, d));
+    let replaying = false;
+    const offInput = term.onData((d) => { if (!replaying) window.pty.write(id, d); });
     const offData = window.pty.onData(id, (d) => ready && term.write(d));
     const offExit = window.pty.onExit(id, () => {
       setExited(true);
@@ -116,7 +139,11 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
     if (!askResumeAtMount.current) {
       window.pty.create({ id, boardId, agentId: data.agentId, cwd: runDirRef.current, label: nameRef.current, cols: term.cols, rows: term.rows, model: data.model }).then((result) => {
         if (disposed) return;
-        if (result?.buffer) term.write(result.buffer);
+        if (result?.buffer) {
+          // Parsing scrollback can replay terminal queries whose responses were already sent.
+          replaying = true;
+          term.write(result.buffer, () => { replaying = false; });
+        }
         applyStatus(result?.status);
         ready = true;
         if (result?.error || !result) setResumeError(result?.error || t('terminal.launchFailed'));
@@ -125,6 +152,7 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
 
     // Quand la case change de taille, le terminal suit.
     const observer = new ResizeObserver(() => {
+      if (!containerRef.current?.offsetHeight) return;
       try {
         fit.fit();
         window.pty.resize(id, term.cols, term.rows);
@@ -147,14 +175,14 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
 
   // Terminal agrandi (PLAN.md §7, 3.3) : le même terminal xterm est déplacé dans le calque au-dessus de la map,
   // puis remis dans la case. Rien n'est relancé ; position et taille de la case ne changent pas.
-  const enlarged = maximized === id && maxSlot;
+  const enlarged = Boolean(maximized === id && maxSlot);
   useEffect(() => {
     if (!enlarged) return;
-    const mount = containerRef.current;
-    const body = bodyRef.current;
+    const mount = contentRef.current;
+    const home = contentHome.current;
     maxSlot.appendChild(mount);
-    termRef.current?.focus();
-    return () => body.prepend(mount);
+    if (!containerRef.current.closest('[hidden]')) termRef.current?.focus();
+    return () => home.prepend(mount);
   }, [enlarged, maxSlot]);
 
   // Bouton « Changements » seulement pour un dossier dans un dépôt Git (PLAN.md §3.20).
@@ -173,6 +201,7 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
     term.options.theme = terminalTheme();
     if (term.options.fontSize !== terminalFontSize) {
       term.options.fontSize = terminalFontSize;
+      if (!containerRef.current?.offsetHeight) return;
       try {
         fitRef.current.fit();
         window.pty.resize(id, term.cols, term.rows);
@@ -246,7 +275,7 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
   };
 
   // Paramètre « Confirmer avant de fermer une case qui travaille » : on demande dans la barre de titre.
-  const busy = !exited && (status === 'working' || status === 'waiting');
+  const busy = (!exited && (status === 'working' || status === 'waiting')) || subagents.some(({ status }) => status === 'working');
   const pickingBranch = branchPicker === id;
   const requestClose = () => {
     if (busy && settings.general.confirmClose) setConfirmingClose(true);
@@ -295,6 +324,9 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
         </div>
       )}
       {showingChanges && <ChangesDialog id={id} dir={runDir} name={name} onClose={() => setShowingChanges(false)} />}
+      {comparing && subagents.length > 0 && (
+        <SubagentDialog parentId={id} parentName={name} subagents={subagents} titleId={`${tabsId}-compare`} onClose={() => setComparing(false)} />
+      )}
       {editingRole && (
         <RoleEditor
           role={data.role}
@@ -354,6 +386,18 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
           {data.model && <span className="model-tag" title={t('model.tile', { model: data.model })}>{data.model}</span>}
           {exited ? <span className="badge">{t('terminal.exited')}</span> : status !== 'waiting' && <StatusDot status={status} />}
           <span className="header-actions">
+            {subagents.length > 0 && !confirmingClose && (
+              <button
+                className="header-button nodrag subagent-expand"
+                aria-label={t('card.subagents.expand')}
+                aria-haspopup="dialog"
+                title={t('card.subagents.expand')}
+                onClick={() => setComparing(true)}
+              >
+                <Columns2 size={14} aria-hidden="true" />
+                <span>{t('card.subagents.expand')}</span>
+              </button>
+            )}
             {exited && (
               <button className="header-button nodrag" onClick={restart} title={t('common.restart')}>
                 <RotateCcw size={13} />
@@ -378,24 +422,58 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
         </header>
 
         {/* nodrag / nowheel : on peut sélectionner du texte et scroller sans bouger la map */}
-        <div className="terminal-body nodrag nowheel" ref={bodyRef} onPointerDown={stopResizing}>
+        <div className="terminal-content-home" ref={contentHome}>
           {enlarged && <span className="terminal-elsewhere hint">{t('terminal.enlarged')}</span>}
-          <div className="terminal-mount" ref={containerRef} />
-          {((askResume && resumeChoice === 'manual') || resumeError) && (
-            <div className="resume-prompt">
-              <p role={resumeError ? 'alert' : undefined}>{resumeError || t('terminal.resumeQuestion', { name })}</p>
-              <div className="resume-actions">
-                <button className="text-button primary" onClick={() => launch(true)}>
-                  <History size={15} />
-                  {t('terminal.resume')}
-                </button>
-                <button className="text-button" onClick={() => launch(false)}>
-                  <MessageSquarePlus size={15} />
-                  {t('terminal.newConversation')}
-                </button>
-              </div>
+          <div className="terminal-content" ref={contentRef}>
+            {subagents.length > 0 && (
+              <SubagentTabs
+                subagents={subagents}
+                active={activeSubagent}
+                onSelect={setActiveSubagent}
+                onClose={(session) => window.subagents.close(id, session)}
+                tabId={tabId}
+                panelId={panelId}
+              />
+            )}
+            <div
+              className="terminal-body nodrag nowheel"
+              id={panelId(null)}
+              role={subagents.length ? 'tabpanel' : undefined}
+              aria-labelledby={subagents.length ? tabId(null) : undefined}
+              hidden={Boolean(activeSubagent)}
+              onPointerDown={stopResizing}
+            >
+              <div className="terminal-mount" ref={containerRef} />
+              {((askResume && resumeChoice === 'manual') || resumeError) && (
+                <div className="resume-prompt">
+                  <p role={resumeError ? 'alert' : undefined}>{resumeError || t('terminal.resumeQuestion', { name })}</p>
+                  <div className="resume-actions">
+                    <button className="text-button primary" onClick={() => launch(true)}>
+                      <History size={15} />
+                      {t('terminal.resume')}
+                    </button>
+                    <button className="text-button" onClick={() => launch(false)}>
+                      <MessageSquarePlus size={15} />
+                      {t('terminal.newConversation')}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+            {subagents.map(({ id, title }) => (
+              <div
+                key={id}
+                className="terminal-body nodrag nowheel"
+                id={panelId(id)}
+                role="tabpanel"
+                aria-labelledby={tabId(id)}
+                hidden={activeSubagent !== id}
+                onPointerDown={stopResizing}
+              >
+                {activeSubagent === id && <SessionTerminal id={id} label={title} />}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </>

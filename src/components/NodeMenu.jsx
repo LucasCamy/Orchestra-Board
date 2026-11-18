@@ -11,6 +11,7 @@ const ACTIONS = {
   panel: ['duplicate', 'focus', 'delete'],
   visualTest: ['duplicate', 'focus', 'delete'],
   interactiveBrowser: ['duplicate', 'focus', 'link', 'delete'],
+  linearBoard: ['duplicate', 'focus', 'link', 'delete'],
 };
 const ICONS = { rename: Pencil, edit: Type, duplicate: Copy, focus: Crosshair, link: Link2, mcp: Plug, delete: Trash2 };
 

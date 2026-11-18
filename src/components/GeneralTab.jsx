@@ -3,6 +3,7 @@ import { useState } from 'react';
 import WorkspaceRecovery from './WorkspaceRecovery.jsx';
 import AboutSection from './AboutSection.jsx';
 import LanguageField from './LanguageField.jsx';
+import LinearConnection from './LinearConnection.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
 import { LINK_MODES } from '../lib/links.js';
 import { useWorkspace } from '../context/WorkspaceContext.jsx';
@@ -29,6 +30,7 @@ export default function GeneralTab({ onStartTutorial, onStartSetup }) {
   return (
     <div className="settings-form">
       <LanguageField />
+      <LinearConnection />
 
       <div className="field">
         <span className="field-label">{t('general.root')}</span>
