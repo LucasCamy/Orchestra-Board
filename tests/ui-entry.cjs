@@ -78,6 +78,12 @@ app.on('browser-window-created', (_event, win) => {
         app.quit();
         return;
       }
+      if (mode === 'subagent-tabs') {
+        await require('./ui-subagent-tabs.cjs')({ win, evaluate, until, errors });
+        console.log('PASS UI subagent-tabs: MCP, ConPTY, tab switching, live comparison and close');
+        app.quit();
+        return;
+      }
       if (mode === 'team-presets') {
         await require('./ui-team-presets.cjs')({ evaluate, until, data, errors });
         console.log('PASS UI team-presets: create and save a maintenance board, then reuse it in another project');

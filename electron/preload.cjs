@@ -249,6 +249,7 @@ contextBridge.exposeInMainWorld('appWindow', {
 
 contextBridge.exposeInMainWorld('pty', {
   create: (opts) => ipcRenderer.invoke('pty:create', opts),
+  snapshot: (id) => ipcRenderer.invoke('pty:snapshot', id),
   write: (id, data) => ipcRenderer.send('pty:write', id, data),
   resize: (id, cols, rows) => ipcRenderer.send('pty:resize', id, cols, rows),
   kill: (id) => ipcRenderer.send('pty:kill', id),
@@ -256,7 +257,7 @@ contextBridge.exposeInMainWorld('pty', {
   rename: (id, name) => ipcRenderer.send('pty:rename', id, name),
   onData: (id, cb) => {
     const channel = `pty:data:${id}`;
-    const listener = (_e, data) => cb(data);
+    const listener = (_e, data, offset) => cb(data, offset);
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
   },
@@ -269,6 +270,17 @@ contextBridge.exposeInMainWorld('pty', {
   onExit: (id, cb) => {
     const channel = `pty:exit:${id}`;
     const listener = (_e, code) => cb(code);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+  },
+});
+
+contextBridge.exposeInMainWorld('subagents', {
+  list: (id) => ipcRenderer.invoke('subagents:list', id),
+  close: (parentId, id) => ipcRenderer.invoke('subagents:close', parentId, id),
+  onChange: (id, cb) => {
+    const channel = `subagents:change:${id}`;
+    const listener = (_event, children) => cb(children);
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
   },

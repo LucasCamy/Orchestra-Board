@@ -8,6 +8,7 @@ const pty = require('node-pty');
 // pour les réafficher quand la case revient à l'écran.
 const terminals = new Map(); // id -> { term, buffer }
 const MAX_BUFFER = 256 * 1024; // caractères
+const terminalSnapshot = ({ buffer, offset, cols, rows }) => ({ buffer, offset, cols, rows });
 
 // Shell choisi dans les paramètres (Général).
 function resolveShell(name) {
@@ -35,14 +36,25 @@ function safeCwd(cwd) {
   return os.homedir();
 }
 
+// A dedicated command shell exits with the CLI. Its input never falls back to a shell prompt.
+function commandArgs(shell, command) {
+  if (/cmd\.exe$/i.test(shell)) return `/d /s /c "${command}"`;
+  if (/(?:^|[\\/])(?:pwsh|powershell)(?:\.exe)?$/i.test(shell)) {
+    return ['-NoLogo', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')];
+  }
+  return ['-lc', command];
+}
+
 // command et shell viennent des paramètres, lus côté Node (jamais envoyés par l'interface).
 // Renvoie { buffer } : vide pour un nouveau terminal, les dernières sorties s'il tournait déjà.
 // env : variables ajoutées à celles de l'app (adresse d'Orchestra pour les hooks de Codex).
-function create({ id, command, shell, cwd, env, cols = 100, rows = 30 }, onData, onExit) {
+function create({ id, command, shell, cwd, env, cols = 100, rows = 30, exitOnCommand = false }, onData, onExit) {
   // Déjà lancé (case d'un tableau qu'on rouvre, ou React StrictMode qui monte deux fois).
   if (terminals.has(id)) return { buffer: terminals.get(id).buffer };
 
-  const term = pty.spawn(resolveShell(shell), [], {
+  const executable = resolveShell(shell);
+  const args = exitOnCommand && command ? commandArgs(executable, command) : [];
+  const term = pty.spawn(executable, args, {
     name: 'xterm-256color',
     cols,
     rows,
@@ -50,23 +62,29 @@ function create({ id, command, shell, cwd, env, cols = 100, rows = 30 }, onData,
     env: env ? { ...process.env, ...env } : process.env,
   });
 
-  const entry = { term, buffer: '' };
+  const entry = { term, buffer: '', offset: 0, cols, rows };
   term.onData((data) => {
+    if (terminals.get(id) !== entry) return;
     entry.buffer = (entry.buffer + data).slice(-MAX_BUFFER);
-    onData(id, data);
+    entry.offset += data.length;
+    onData(id, data, entry.offset);
   });
   term.onExit(({ exitCode }) => {
     // Terminal tué puis relancé sous le même id (changement de branche) : la fin de l'ancien ne compte pas.
     if (terminals.get(id) !== entry) return;
     terminals.delete(id);
-    onExit(id, exitCode);
+    onExit(id, exitCode, terminalSnapshot(entry));
   });
 
   terminals.set(id, entry);
 
   // On démarre un shell puis on tape la commande de l'agent :
   // le PATH de l'utilisateur est chargé et le terminal reste ouvert si l'agent quitte.
-  if (command) setTimeout(() => term.write(command + '\r'), 300);
+  if (command && !exitOnCommand) {
+    entry.start = setTimeout(() => {
+      if (terminals.get(id) === entry) term.write(command + '\r');
+    }, 300);
+  }
   return { buffer: '' };
 }
 
@@ -77,18 +95,29 @@ function write(id, data) {
 // Dernières sorties d'un terminal lancé, ou null (outil read_terminal d'un lien Terminal).
 const buffer = (id) => terminals.get(id)?.buffer ?? null;
 
+function snapshot(id) {
+  const entry = terminals.get(id);
+  return entry ? terminalSnapshot(entry) : null;
+}
+
 function resize(id, cols, rows) {
-  const term = terminals.get(id)?.term;
-  if (term && cols > 0 && rows > 0) term.resize(cols, rows);
+  const entry = terminals.get(id);
+  if (!entry || !(cols > 0 && rows > 0)) return;
+  entry.term.resize(cols, rows);
+  entry.cols = cols;
+  entry.rows = rows;
 }
 
 function kill(id) {
-  terminals.get(id)?.term.kill();
+  const entry = terminals.get(id);
+  if (!entry) return;
   terminals.delete(id);
+  clearTimeout(entry.start);
+  entry.term.kill();
 }
 
 function killAll() {
   for (const id of [...terminals.keys()]) kill(id);
 }
 
-module.exports = { create, write, buffer, resize, kill, killAll, ids: () => [...terminals.keys()] };
+module.exports = { create, write, buffer, snapshot, resize, kill, killAll, ids: () => [...terminals.keys()] };

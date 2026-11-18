@@ -71,5 +71,8 @@ test('Claude and Codex receive card-specific servers alongside Orchestra', (t) =
   assert.doesNotMatch(profiles[0], /agent-browser/);
   assert.match(profiles[1], /\[mcp_servers\."agent-browser"\]/);
   assert.doesNotMatch(profiles[1], /linear/);
-  for (const profile of profiles) assert.match(profile, /\[mcp_servers.orchestra\]/);
+  for (const profile of profiles) {
+    assert.match(profile, /\[mcp_servers.orchestra\]/);
+    assert.match(profile, /^supports_parallel_tool_calls = true$/m);
+  }
 });

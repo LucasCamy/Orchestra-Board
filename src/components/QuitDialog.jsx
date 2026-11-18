@@ -12,7 +12,7 @@ export default function QuitDialog({ agents, onCancel, onQuit }) {
   const { homeDir } = useWorkspace();
   const t = useT();
   const count = agents.length;
-  const allResumable = agents.every((a) => a.agent.resumeArgs);
+  const allResumable = agents.every((a) => !a.parentId && a.agent.resumeArgs);
   const waiting = agents.some((a) => a.status === 'waiting');
 
   useEffect(() => {

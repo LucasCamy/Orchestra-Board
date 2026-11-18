@@ -3,6 +3,7 @@ const { t } = require('./i18n.cjs');
 const { MODEL } = require('./settingsStore.cjs');
 const { createWorkspaceFiles } = require('./workspaceFiles.cjs');
 const { sanitizeSession } = require('./sessionState.cjs');
+const { isSubagent } = require('./subagents.cjs');
 const { configuration: visualTestConfiguration, sanitizeResult: sanitizeVisualTestResult } = require('./visualTestRunner.cjs');
 const { randomUUID } = require('crypto');
 
@@ -66,7 +67,8 @@ function sanitizeData(type, data = {}) {
 }
 
 function sanitizeNode(n) {
-  if (!n || !ID.test(n.id) || !['terminal', 'note', 'text', 'panel', 'visualTest'].includes(n.type)) return null;
+  // Internal agent IDs and runtime tab data never enter workspace saves or templates.
+  if (!n || !ID.test(n.id) || isSubagent(n.id) || !['terminal', 'note', 'text', 'panel', 'visualTest'].includes(n.type)) return null;
   if (!isNum(n.position?.x) || !isNum(n.position?.y)) return null;
   const style = {};
   if (size(n.style?.width)) style.width = n.style.width;

@@ -16,7 +16,7 @@ export default function useBoardShortcuts({ onTool, onEscape, onDelete, onUndo, 
   useEffect(() => {
     const onKeyDown = (event) => {
       // Dans un champ ou un terminal, Ctrl+Z garde son sens habituel.
-      if (isTyping(event.target) || document.querySelector('.modal-backdrop')) return;
+      if (isTyping(event.target) || event.target.closest?.('.subagent-tabs') || document.querySelector('.modal-backdrop, dialog[open]')) return;
 
       const key = event.key.toLowerCase();
       if ((event.ctrlKey || event.metaKey) && !event.altKey) {

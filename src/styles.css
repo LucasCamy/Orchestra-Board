@@ -361,6 +361,7 @@ button { font: inherit; color: inherit; }
   box-shadow: 0 8px 24px var(--shadow);
   --tilt: 0deg;
   transition: transform 120ms ease-out, box-shadow 120ms ease-out, border-color 120ms;
+  container-type: inline-size;
 }
 .terminal-node.selected { border-color: var(--accent); }
 
@@ -514,6 +515,103 @@ button { font: inherit; color: inherit; }
 }
 
 .terminal-body { position: relative; flex: 1; padding: 4px; min-height: 0; overflow: hidden; background: var(--terminal-bg); }
+.terminal-content-home { position: relative; display: flex; flex: 1; min-height: 0; }
+.terminal-content { display: flex; flex-direction: column; flex: 1; min-width: 0; height: 100%; }
+.terminal-content > .terminal-body[hidden] { display: none; }
+
+.subagent-tabs {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+  flex: 0 0 auto;
+  padding: 4px 6px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.subagent-scroll {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+.subagent-tab-item {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 5px;
+}
+.subagent-tab-item:has([aria-selected="true"]), .subagent-main[aria-selected="true"] {
+  border-color: var(--border);
+  background: var(--terminal-bg);
+  color: var(--text);
+}
+.subagent-tab, .subagent-close {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.subagent-main { flex-shrink: 0; border: 1px solid transparent; }
+.subagent-tab[aria-selected="true"] { color: var(--text); }
+.subagent-tab:hover, .subagent-close:hover { background: var(--surface); color: var(--text); }
+.subagent-close:hover { color: var(--danger); }
+.subagent-tab:focus-visible, .subagent-close:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.subagent-title { max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-status { display: inline-flex; position: relative; flex-shrink: 0; }
+.subagent-status.working, .subagent-status.completed { color: var(--success); }
+.subagent-status.failed { color: var(--warning); }
+.subagent-status.working { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.subagent-status.working::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  animation: pulse-green 1.9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+@keyframes pulse-green {
+  0% { transform: scale(1); opacity: 0.55; }
+  75%, 100% { transform: scale(2.15); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .subagent-status.working::after { display: none; }
+}
+@container (max-width: 460px) {
+  .subagent-expand > span { display: none; }
+}
+
+.dialog.subagent-dialog {
+  display: none;
+  width: min(1240px, calc(100vw - 40px));
+  height: min(740px, calc(100vh - 64px));
+  margin: auto;
+  color: var(--text);
+  animation: none;
+}
+.dialog.subagent-dialog[open] { display: flex; }
+.subagent-dialog::backdrop { background: color-mix(in srgb, var(--bg) 72%, transparent); }
+.subagent-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.subagent-dialog-header h1 { margin: 0; font-size: 16px; }
+.subagent-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; flex: 1; min-height: 0; }
+.subagent-comparison-children { display: grid; grid-auto-rows: minmax(200px, 1fr); gap: 12px; overflow: auto; }
+.subagent-pane { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.subagent-pane-header { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
+.subagent-pane-header h2 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.subagent-pane .terminal-body { overflow: auto; }
+.subagent-pane .terminal-mount { width: max-content; height: auto; }
+@media (max-width: 680px) {
+  .subagent-comparison { grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); }
+}
 
 /* Case restaurée : reprendre ou non la conversation précédente */
 .resume-prompt {

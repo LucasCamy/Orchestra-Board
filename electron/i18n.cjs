@@ -159,10 +159,20 @@ const DICTIONARIES = {
     'link.targetNotRunning': 'The target agent is not running',
     'link.noReply': 'Reply not found in the transcript',
     'link.limitReached': 'Turn limit reached ({max})',
+    'card.subagents.invalidTask': 'Give the sub-agent a title (up to 80 characters) and a plain-text prompt (up to 20,000 characters).',
+    'card.subagents.unsupported': 'Choose an agent configured in Orchestra with hooks: Claude Code, Codex or Antigravity.',
+    'card.subagents.limit': 'This card already has {max} sub-agent tabs. Close a tab before starting another.',
+    'card.subagents.cancelled': 'The sub-agent request was cancelled.',
+    'card.subagents.unknown': 'No sub-agent with that ID is open on your card.',
+    'card.subagents.closed': 'The sub-agent “{title}” was closed.',
+    'card.subagents.launchFailed': 'Orchestra could not launch the sub-agent. Check that the CLI is installed.',
+    'card.subagents.unconfirmed': 'The CLI did not confirm the sub-agent prompt. Check the terminal output on its tab.',
+    'card.subagents.exited': 'The sub-agent exited before returning a reply.',
     'orchestra.context':
       'You run in Orchestra, an app where several AI agents work side by side and can be linked to each other. ' +
       'When the user mentions another agent by its name (e.g. "Codex 2", "Claude Code 3") or asks you to have another agent do something, ' +
       'call the list_agents tool of the orchestra MCP server, then send_to_agent, instead of doing the task yourself. ' +
+      'To delegate to a new sub-agent within your own card, use orchestra_spawn_subagent. ' +
       'When the user asks you to note or track something in a note or sticky note, use list_notes, read_note and write_note.',
     'note.defaultName': "Note",
     'note.none': "No linked note: the user must draw a link from your tile to a sticky note on the Orchestra map.",
@@ -401,10 +411,20 @@ const DICTIONARIES = {
     'link.targetNotRunning': "L'agent cible n'est pas lancé",
     'link.noReply': 'Réponse introuvable dans le transcript',
     'link.limitReached': 'Limite de tours atteinte ({max})',
+    'card.subagents.invalidTask': 'Indique un titre (80 caractères maximum) et une consigne en texte brut (20 000 caractères maximum).',
+    'card.subagents.unsupported': 'Choisis un agent configuré dans Orchestra avec des hooks : Claude Code, Codex ou Antigravity.',
+    'card.subagents.limit': 'Cette case a déjà {max} onglets de sous-agents. Ferme un onglet avant d’en ouvrir un autre.',
+    'card.subagents.cancelled': 'La demande de sous-agent a été annulée.',
+    'card.subagents.unknown': 'Aucun sous-agent avec cet identifiant n’est ouvert dans ta case.',
+    'card.subagents.closed': 'Le sous-agent « {title} » a été fermé.',
+    'card.subagents.launchFailed': 'Orchestra ne peut pas lancer le sous-agent. Vérifie que le CLI est installé.',
+    'card.subagents.unconfirmed': 'Le CLI n’a pas confirmé la consigne. Consulte la sortie du terminal dans l’onglet.',
+    'card.subagents.exited': 'Le sous-agent s’est arrêté avant de répondre.',
     'orchestra.context':
       'Tu tournes dans Orchestra, une app où plusieurs agents IA travaillent côte à côte et peuvent être reliés entre eux. ' +
       "Quand l'utilisateur parle d'un autre agent par son nom (par exemple « Codex 2 », « Claude Code 3 ») ou te demande de faire faire quelque chose à un autre agent, " +
       "appelle l'outil list_agents du serveur MCP orchestra, puis send_to_agent, au lieu de faire la tâche toi-même. " +
+      "Pour déléguer à un nouveau sous-agent dans ta case, utilise orchestra_spawn_subagent. " +
       "Quand l'utilisateur te demande de noter ou suivre quelque chose dans une note ou un post-it, utilise list_notes, read_note et write_note.",
     'note.defaultName': "Note",
     'note.none': "Aucune note reliée : l'utilisateur doit tracer un lien de ta case vers un post-it sur la map d'Orchestra.",
