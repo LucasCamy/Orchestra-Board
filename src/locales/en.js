@@ -398,6 +398,13 @@ export default {
   // Cases terminal
   'terminal.changeBranch': 'Change branch',
   'terminal.exited': 'exited',
+  'card.subagents.main': 'Main',
+  'card.subagents.tabs': 'Agent sessions',
+  'card.subagents.running': 'Working',
+  'card.subagents.completed': 'Completed',
+  'card.subagents.failed': 'Failed',
+  'card.subagents.expand': 'Expand sub-agents',
+  'card.subagents.close': ({ title }) => `Close ${title}`,
   'terminal.closeConfirm': '{name} is still working. Close?',
   'terminal.renameHint': 'Double-click or F2 to rename',
   'terminal.resumeQuestion': "Resume the saved conversation for {name}?",

@@ -397,6 +397,13 @@ export default {
   // Cases terminal
   'terminal.changeBranch': 'Changer de branche',
   'terminal.exited': 'terminé',
+  'card.subagents.main': 'Principal',
+  'card.subagents.tabs': 'Sessions des agents',
+  'card.subagents.running': 'En cours',
+  'card.subagents.completed': 'Terminé',
+  'card.subagents.failed': 'Échec',
+  'card.subagents.expand': 'Afficher les sous-agents',
+  'card.subagents.close': ({ title }) => `Fermer ${title}`,
   'terminal.closeConfirm': '{name} travaille encore. Fermer ?',
   'terminal.renameHint': 'Double-clic ou F2 pour renommer',
   'terminal.resumeQuestion': 'Reprendre la conversation sauvegardée de {name} ?',

@@ -17,6 +17,7 @@ const agentStatus = require('./agentStatus.cjs');
 const gitHandlers = require('./git.cjs');
 const linkRelay = require('./linkRelay.cjs');
 const delegation = require('./delegation.cjs');
+const { createSubagents, isSubagent, isTool: isSubagentTool } = require('./subagents.cjs');
 const terminalLink = require('./terminalLink.cjs');
 const noteLink = require('./noteLink.cjs');
 const visualTests = require('./visualTestRunner.cjs');
@@ -147,7 +148,7 @@ function createWindow() {
 // (app:confirmQuit avec la liste des agents), puis répond par app:quit.
 function confirmQuit(event) {
   if (quitConfirmed || !settingsStore.load().general.confirmClose) return;
-  const agents = agentStatus.busy();
+  const agents = [...agentStatus.busy(), ...subagents.busy()];
   if (!agents.length) return;
   event.preventDefault();
   send('app:confirmQuit', agents);
@@ -254,6 +255,8 @@ noteLink.init({
 
 // Outils du serveur MCP d'une case : liens Note, Test visuel, Terminal et Délégation.
 function callTool(caller, name, args, signal) {
+  if (isSubagentTool(name)) return subagents.callTool(caller, name, args, signal);
+  if (isSubagent(caller)) return { text: t('delegate.callerNotRunning'), isError: true };
   if (noteLink.isTool(name)) return noteLink.callTool(caller, name, args);
   if (visualTestLink.isTool(name)) {
     if (!agentStatus.info(caller)) return { text: t('delegate.callerNotRunning'), isError: true };
@@ -265,6 +268,59 @@ function callTool(caller, name, args, signal) {
 }
 
 const caseAgents = new Map(); // agent lancé dans chaque case ; seuls ses hooks peuvent définir la session
+const caseModels = new Map();
+const configuredAgent = (id) => settingsStore.load().agents.find((agent) => agent.id === id);
+function stopSubagent(id) {
+  try { ptyManager.kill(id); }
+  catch (error) { console.warn('Subagent terminal cleanup failed:', error.code); }
+  removeSubagentSettings(id);
+}
+
+function removeSubagentSettings(id) {
+  try { claudeHooks.removeSettings(id); }
+  catch (error) { console.warn('Subagent hook cleanup failed:', error.code); }
+  antigravityHooks.remove(id);
+}
+
+const subagents = createSubagents({
+  parent: (id) => {
+    const agentId = caseAgents.get(id);
+    const info = agentStatus.info(id);
+    return agentId && info && { agentId, agent: configuredAgent(agentId), cwd: info.cwd, model: caseModels.get(id) };
+  },
+  agent: configuredAgent,
+  launch: ({ id, cwd }, agent, model) => {
+    const settings = settingsStore.load();
+    const shell = settings.general.shell;
+    const antigravityLaunch = agent.hooks === 'antigravity' ? antigravityHooks.prepare(id, {}, shell) : null;
+    const command = buildCommand(id, agent, false, model, {}, antigravityLaunch);
+    if (agent.hooks === 'claude' && settings.general.trustFolders) claudeTrust.trustFolder(cwd);
+    ptyManager.create({
+      id, cwd, shell, command, exitOnCommand: true,
+      env: antigravityLaunch?.env ?? (agent.hooks === 'codex' ? codexProfile.env(id) : null),
+    }, (id, data, offset) => {
+      send(`pty:data:${id}`, data, offset);
+      subagents.onOutput(id, data);
+    }, (id, _code, output) => {
+      removeSubagentSettings(id);
+      subagents.onExit(id, output);
+    });
+  },
+  stop: stopSubagent,
+  write: ptyManager.write,
+  snapshot: ptyManager.snapshot,
+  emit: (id, children) => send(`subagents:change:${id}`, children),
+  lastReply: linkRelay.lastReply,
+  readDelay: linkRelay.READ_DELAY,
+  t,
+});
+
+ipcMain.handle('subagents:list', (event, parentId) => isBoardFrame(event) ? subagents.list(parentId) : []);
+ipcMain.handle('subagents:close', (event, parentId, id) => Boolean(isBoardFrame(event) && subagents.close(parentId, id)));
+ipcMain.handle('pty:snapshot', (event, id) => {
+  if (!isBoardFrame(event)) return null;
+  return isSubagent(id) ? subagents.snapshot(id) : ptyManager.snapshot(id);
+});
 
 function trackSession(id, payload) {
   const agentId = caseAgents.get(id);
@@ -280,6 +336,11 @@ function trackSession(id, payload) {
 // Début de session : la réponse au hook dit à l'agent qu'il tourne dans Orchestra et lui donne son rôle
 // (même format pour Claude Code et Codex). Ce contexte n'est pas affiché dans le terminal.
 function onHook(id, payload) {
+  if (isSubagent(id)) {
+    const hook = subagents.kind(id) === 'antigravity' ? antigravityHooks.normalize(payload) : payload;
+    if (hook) subagents.onHook(id, hook);
+    return {};
+  }
   const isAntigravity = caseAgents.get(id) === 'antigravity';
   if (isAntigravity) {
     payload = antigravityHooks.normalize(payload);
@@ -352,7 +413,7 @@ function buildCommand(id, agent, resume, model, mcpServers, antigravityLaunch) {
 ipcMain.handle('pty:create', (_e, { id, boardId, agentId, cwd, label, cols, rows, resume, model }) => {
   const settings = settingsStore.load();
   const agent = settings.agents.find((a) => a.id === agentId);
-  if (!validId(id) || !agent) return null;
+  if (!validId(id) || isSubagent(id) || !agent) return null;
 
   const existing = agentStatus.info(id);
   const mcpServers = existing || !agent.hooks ? {} : mcpCatalog().resolve(caseBoards.get(id) ?? boardId, id);
@@ -364,6 +425,7 @@ ipcMain.handle('pty:create', (_e, { id, boardId, agentId, cwd, label, cols, rows
   if (!existing) {
     if (!resume) workspaceStore.setSession(id, null);
     caseAgents.set(id, agentId);
+    caseModels.set(id, model);
   }
   if (!existing && agent.hooks === 'claude' && settings.general.trustFolders) claudeTrust.trustFolder(cwd);
   if (!existing) {
@@ -381,14 +443,16 @@ ipcMain.handle('pty:create', (_e, { id, boardId, agentId, cwd, label, cols, rows
       cols,
       rows,
     },
-    (id, data) => {
+    (id, data, offset) => {
       agentStatus.onOutput(id, data);
       terminalLink.onOutput(id, data);
-      send(`pty:data:${id}`, data);
+      send(`pty:data:${id}`, data, offset);
     },
     (id, code) => {
+      subagents.closeParent(id);
       agentStatus.unregister(id);
       caseAgents.delete(id);
+      caseModels.delete(id);
       diagnostics.forget(id);
       roleState.clear(id);
       blockers.onStatus(id, null);
@@ -405,6 +469,7 @@ ipcMain.handle('pty:create', (_e, { id, boardId, agentId, cwd, label, cols, rows
 });
 ipcMain.on('pty:write', (_e, id, data) => {
   if (typeof data !== 'string') return;
+  if (isSubagent(id)) return subagents.write(id, data);
   agentStatus.onInput(id, data);
   if (!data.startsWith('\x1b') && data.includes('\r')) {
     // Consigne tapée à la main : nouvelle chaîne, compteurs de tours à zéro.
@@ -426,9 +491,12 @@ ipcMain.on('pty:rename', (_e, id, name) => {
   send('agent:status', id, agentStatus.info(id));
 });
 ipcMain.on('pty:kill', (_e, id) => {
+  if (isSubagent(id)) return;
+  subagents.closeParent(id);
   ptyManager.kill(id);
   agentStatus.unregister(id);
   caseAgents.delete(id);
+  caseModels.delete(id);
   diagnostics.forget(id);
   roleState.clear(id);
   blockers.onStatus(id, null);
@@ -525,6 +593,7 @@ workspaceStore.register((workspace) => {
   noteLink.setWorkspace(workspace);
   noteFiles.setWorkspace(workspace);
 }, () => {
+  subagents.closeAll();
   for (const id of ptyManager.ids()) {
     ptyManager.kill(id);
     agentStatus.unregister(id);
@@ -537,6 +606,7 @@ workspaceStore.register((workspace) => {
   }
   for (const id of caseAgents.keys()) diagnostics.forget(id);
   caseAgents.clear();
+  caseModels.clear();
 }, (boardId, cards, preset, backlog, persist, event) => {
   if (!isBoardFrame(event)) throw new Error('Invalid board frame');
   return mcpCatalog().applyPreset(boardId, cards, preset, () => {
@@ -600,6 +670,7 @@ app.on('before-quit', () => {
   noteFiles.dispose();
   taskSequences?.dispose();
   linkRelay.dispose();
+  subagents.closeAll();
   ptyManager.killAll();
   antigravityHooks.clearAll();
   usage.stop();

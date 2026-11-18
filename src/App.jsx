@@ -227,9 +227,10 @@ function Workspace({ saved }) {
   useEffect(() => window.appWindow.onConfirmQuit(setQuitAgents), []);
   const closeQuit = useCallback(() => setQuitAgents(null), []);
   const quitList = quitAgents?.map((a) => {
-    const board = boards.boards.find((b) => content[b.id]?.nodes.some((n) => n.id === a.id));
-    const node = board && content[board.id].nodes.find((n) => n.id === a.id);
-    return { ...a, agent: agentById(node?.data.agentId), boardName: boards.boards.length > 1 ? board?.name : null };
+    const cardId = a.parentId ?? a.id;
+    const board = boards.boards.find((b) => content[b.id]?.nodes.some((n) => n.id === cardId));
+    const node = board && content[board.id].nodes.find((n) => n.id === cardId);
+    return { ...a, agent: agentById(a.agentId ?? node?.data.agentId), boardName: boards.boards.length > 1 ? board?.name : null };
   });
 
   // Panneaux posés sur la map : leur état vit ici, car la map est recréée à chaque changement de tableau.
@@ -398,7 +399,7 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
         return;
       }
       if (event.key !== 'F2' || event.ctrlKey || event.altKey || event.shiftKey) return;
-      if (document.querySelector('.modal-backdrop')) return;
+      if (document.querySelector('.modal-backdrop, dialog[open]')) return;
       const focused = document.activeElement;
       if (focused?.matches('input, textarea, [contenteditable="true"]') && !focused.closest('.xterm')) return;
       if (focused?.closest('.explorer')) return; // F2 de l'explorateur : renommer le dossier ou fichier
