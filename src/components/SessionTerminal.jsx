@@ -35,13 +35,14 @@ export default function SessionTerminal({ id, label, readOnly = false }) {
       }
       return key !== 'v';
     });
-    const input = readOnly ? null : term.onData((data) => window.pty.write(id, data));
+    let replaying = false;
+    const input = readOnly ? null : term.onData((data) => { if (!replaying) window.pty.write(id, data); });
     let offset = 0;
     let pending = [];
     let disposed = false;
-    const write = (data, end) => {
+    const write = (data, end, onParsed) => {
       if (end <= offset) return;
-      term.write(data.slice(Math.max(0, offset - (end - data.length))));
+      term.write(data.slice(Math.max(0, offset - (end - data.length))), onParsed);
       offset = end;
     };
     const off = window.pty.onData(id, (data, end) => {
@@ -53,7 +54,10 @@ export default function SessionTerminal({ id, label, readOnly = false }) {
       if (snapshot) {
         // Preserve VT cursor positions when replaying a TUI in a narrower comparison pane.
         if (readOnly) term.resize(snapshot.cols, snapshot.rows);
-        write(snapshot.buffer, snapshot.offset);
+        if (snapshot.offset > offset) {
+          replaying = true;
+          write(snapshot.buffer, snapshot.offset, () => { replaying = false; });
+        }
       }
       for (const [data, end] of pending) write(data, end);
       pending = null;

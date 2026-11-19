@@ -119,7 +119,8 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
     // d'abord ses dernières sorties : ce qui arrive avant est déjà dedans, on le met de côté.
     let disposed = false;
     let ready = askResumeAtMount.current;
-    const offInput = term.onData((d) => window.pty.write(id, d));
+    let replaying = false;
+    const offInput = term.onData((d) => { if (!replaying) window.pty.write(id, d); });
     const offData = window.pty.onData(id, (d) => ready && term.write(d));
     const offExit = window.pty.onExit(id, () => {
       setExited(true);
@@ -138,7 +139,11 @@ export default function TerminalNode({ id, data, selected, dragging, positionAbs
     if (!askResumeAtMount.current) {
       window.pty.create({ id, boardId, agentId: data.agentId, cwd: runDirRef.current, label: nameRef.current, cols: term.cols, rows: term.rows, model: data.model }).then((result) => {
         if (disposed) return;
-        if (result?.buffer) term.write(result.buffer);
+        if (result?.buffer) {
+          // Parsing scrollback can replay terminal queries whose responses were already sent.
+          replaying = true;
+          term.write(result.buffer, () => { replaying = false; });
+        }
         applyStatus(result?.status);
         ready = true;
         if (result?.error || !result) setResumeError(result?.error || t('terminal.launchFailed'));

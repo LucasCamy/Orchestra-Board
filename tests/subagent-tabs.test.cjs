@@ -74,7 +74,7 @@ test('MCP spawns a working tab scoped to the authenticated parent and returns it
   };
 
   const catalog = await request('tools/list');
-  assert.deepEqual(catalog.tools.filter(({ name }) => name.startsWith('orchestra_')).map(({ name }) => name), [spawnTool, listTool, closeTool]);
+  assert.deepEqual(catalog.tools.filter(({ name }) => name.includes('_subagent')).map(({ name }) => name), [spawnTool, listTool, closeTool]);
   const runningCall = request('tools/call', { name: spawnTool, arguments: task });
   await started;
   const [{ id, cwd, model }] = s.launches;

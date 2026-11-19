@@ -1,7 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { app, BrowserWindow, Menu, Notification, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, Notification, dialog, ipcMain, safeStorage, session, shell } = require('electron');
 const ptyManager = require('./ptyManager.cjs');
 const fsHandlers = require('./fsHandlers.cjs');
 const settingsStore = require('./settingsStore.cjs');
@@ -22,6 +22,8 @@ const terminalLink = require('./terminalLink.cjs');
 const noteLink = require('./noteLink.cjs');
 const visualTests = require('./visualTestRunner.cjs');
 const visualTestLink = require('./visualTestLink.cjs');
+const { createInteractiveBrowser, isTool: isBrowserTool } = require('./interactiveBrowser.cjs');
+const { BROWSER_PARTITION } = require('./browserModel.mjs');
 const { createNoteFiles, registerNoteFiles } = require('./noteFiles.cjs');
 const { createWorkerSandbox } = require('./workerSandbox.cjs');
 const { createWorkerChanges } = require('./workerChanges.cjs');
@@ -37,6 +39,7 @@ const teamTemplates = require('./teamTemplates.cjs');
 const { createBlockers } = require('./blockers.cjs');
 const { createRoleState } = require('./roleState.cjs');
 const { createTaskSequences } = require('./taskSequences.cjs');
+const { createLinearCredentials, createLinearSync } = require('./linearSync.cjs');
 
 let win;
 let quitConfirmed = false;
@@ -44,6 +47,49 @@ let taskSequences;
 let sequenceNodes = [];
 const mcpCatalog = () => createMcpCatalog(app.getPath('userData'));
 const isBoardFrame = (event) => win && event.sender === win.webContents && event.senderFrame === event.sender.mainFrame;
+const interactiveBrowser = createInteractiveBrowser();
+const linearCredentials = createLinearCredentials(() => path.join(app.getPath('userData'), 'linear-key'), safeStorage);
+const linear = createLinearSync({ getKey: linearCredentials.read, emit: (change) => send('linear:issueChanged', change) });
+
+ipcMain.handle('linear:connection', async (event) => isBoardFrame(event) ? { configured: Boolean(await linearCredentials.read()) } : null);
+ipcMain.handle('linear:saveKey', async (event, key) => {
+  if (!isBoardFrame(event)) return { error: 'invalidScope' };
+  const error = await linearCredentials.save(typeof key === 'string' ? key.trim() : key);
+  if (error) return { error };
+  send('linear:issueChanged', { connectionChanged: true });
+  return { configured: !!key.trim() };
+});
+ipcMain.handle('linear:fetchIssues', (event, scope) => isBoardFrame(event) ? linear.fetchIssues(scope ?? {}) : { error: 'invalidScope' });
+ipcMain.handle('linear:updateIssueStatus', async (event, input, context) => {
+  if (!isBoardFrame(event)) return { error: 'invalidScope' };
+  const result = await linear.updateIssueStatus(input ?? {});
+  if (!result.changed || result.issue.status !== 'inProgress' || !context) return result;
+  const board = workspaceStore.get().boards.find(({ id }) => id === context.boardId);
+  if (!board?.nodes.some((node) => node.id === context.nodeId && node.type === 'linearBoard')) return result;
+  const targets = new Set();
+  for (const edge of board.edges) {
+    if (edge.source !== context.nodeId || edge.data.mode !== 'linear' || !edge.data.enabled || targets.has(edge.target)) continue;
+    const target = board.nodes.find((node) => node.id === edge.target && node.type === 'terminal');
+    if (!target || !configuredAgent(target.data.agentId)?.hooks) continue;
+    targets.add(edge.target);
+    if (!agentStatus.info(edge.target)?.ready) {
+      emitLink(edge.id, { state: 'error', message: t('link.targetNotRunning') });
+      continue;
+    }
+    linkRelay.enqueue(edge.target, {
+      id: edge.id, from: edge.source, kind: 'delegate',
+      text: t('linear.delegationPrompt', { identifier: result.issue.identifier }),
+      stillValid: () => workspaceStore.get().boards.find(({ id }) => id === board.id)?.edges.some((current) =>
+        current.id === edge.id && current.source === edge.source && current.target === edge.target && current.data.mode === 'linear' && current.data.enabled),
+    });
+  }
+  return result;
+});
+
+ipcMain.handle('browser:register', (event, ...args) => isBoardFrame(event) && interactiveBrowser.register(event.sender, ...args));
+ipcMain.handle('browser:cookies', (event, guestId, url) => isBoardFrame(event) ? interactiveBrowser.cookies(event.sender, guestId, url) : null);
+ipcMain.handle('browser:removeCookies', (event, guestId, url) => isBoardFrame(event) ? interactiveBrowser.cookies(event.sender, guestId, url, true) : null);
+ipcMain.handle('browser:savePreferenceCookie', (event, guestId, url, preference) => isBoardFrame(event) ? interactiveBrowser.savePreferenceCookie(event.sender, guestId, url, preference) : null);
 
 ipcMain.handle('mcp:get', (event, boardId, cardId) => isBoardFrame(event) ? mcpCatalog().get(boardId, cardId) : null);
 ipcMain.handle('mcp:save', (event, boardId, cardId, change) => {
@@ -105,8 +151,10 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webviewTag: true,
     },
   });
+  interactiveBrowser.attach(win.webContents, session.fromPartition(BROWSER_PARTITION));
 
   if (process.platform === 'win32') {
     const launcher = path.join(__dirname, '..', 'launcher.exe');
@@ -275,6 +323,10 @@ function callTool(caller, name, args, signal) {
   if (isSubagentTool(name)) return subagents.callTool(caller, name, args, signal);
   if (isSubagent(caller)) return { text: t('delegate.callerNotRunning'), isError: true };
   if (noteLink.isTool(name)) return noteLink.callTool(caller, name, args);
+  if (isBrowserTool(name)) {
+    if (!agentStatus.info(caller)) return { text: t('delegate.callerNotRunning'), isError: true };
+    return interactiveBrowser.callTool(workspaceStore.get(), caller, name, args);
+  }
   if (visualTestLink.isTool(name)) {
     if (!agentStatus.info(caller)) return { text: t('delegate.callerNotRunning'), isError: true };
     return visualTestLink.callTool(workspaceStore.get(), caller, name, args, visualTests.isRunning);
@@ -470,6 +522,7 @@ function hookContext(event, antigravity, context, reason) {
 function onHook(id, payload) {
   // A sandbox hook can report session output, but cannot name a host file for Orchestra to read.
   if (sandboxCases.has(id)) payload = { ...payload, transcript_path: null, transcriptPath: null };
+  if (caseAgents.has(id) || subagents.kind(id)) linear.onHook(payload);
   if (isSubagent(id)) {
     const isAntigravity = subagents.kind(id) === 'antigravity';
     const hook = isAntigravity ? antigravityHooks.normalize(payload) : payload;
@@ -847,17 +900,29 @@ app.whenReady().then(async () => {
   createWindow();
 });
 
-// Pas de processus orphelins : on tue tous les agents en quittant.
-app.on('before-quit', () => {
-  startingCards.clear();
-  visualTests.dispose();
-  noteFiles.dispose();
-  taskSequences?.dispose();
-  linkRelay.dispose();
-  subagents.closeAll();
-  ptyManager.killAll();
-  workerSandbox.dispose();
-  antigravityHooks.clearAll();
-  usage.stop();
+// Keep Electron's event loop alive while ConPTY reports the closed terminals.
+let shutdown = 'idle';
+app.on('before-quit', async (event) => {
+  if (shutdown === 'ready') return;
+  event.preventDefault();
+  if (shutdown === 'closing') return;
+  shutdown = 'closing';
+  try {
+    startingCards.clear();
+    visualTests.dispose();
+    noteFiles.dispose();
+    taskSequences?.dispose();
+    linkRelay.dispose();
+    subagents.closeAll();
+    await ptyManager.killAll();
+    workerSandbox.dispose();
+    antigravityHooks.clearAll();
+    usage.stop();
+  } catch (error) {
+    console.error('Shutdown cleanup failed:', error.message);
+  } finally {
+    shutdown = 'ready';
+    app.quit();
+  }
 });
 app.on('window-all-closed', () => app.quit());

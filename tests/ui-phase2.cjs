@@ -94,9 +94,12 @@ module.exports = async ({ win, evaluate, until, sleep, data, errors }) => {
 
   // Un arrêt de terminal est signalé et une relance le résout.
   await tab('Roles');
-  await until("!!document.querySelector('.react-flow__node[data-id=" + JSON.stringify('smoke-terminal') + "]')");
+  await until("document.querySelector('.react-flow__node[data-id=\"smoke-terminal\"] .xterm-rows')?.textContent.includes('>')");
   await evaluate("window.pty.write('smoke-terminal', 'exit\\r')");
-  await until("document.querySelector('.react-flow__node[data-id=" + JSON.stringify('smoke-terminal') + "] .badge')?.textContent.includes(" + JSON.stringify(tr('exited', 'terminé')) + ")");
+  await until("document.querySelector('.react-flow__node[data-id=" + JSON.stringify('smoke-terminal') + "] .badge')?.textContent.includes(" + JSON.stringify(tr('exited', 'terminé')) + ")").catch((error) => {
+    const shellOutput = require('../electron/ptyManager.cjs').buffer('smoke-terminal');
+    throw new Error(`${error.message}; shell buffer: ${JSON.stringify(shellOutput?.slice(-300))}`);
+  });
   const stopped = await evaluate('window.blockers.get()');
   assert.ok(stopped.some((entry) => entry.kind === 'exit' && entry.caseId === 'smoke-terminal' && !entry.resolved));
   await click('.react-flow__node[data-id="smoke-terminal"] .header-button');

@@ -225,7 +225,7 @@ function confirmSubmit(target, delivery, retries) {
 // Message pour une case (Transmission, ou Délégation via delegation.cjs) : envoyé dès qu'elle est libre.
 // Chaque message reçoit un identifiant (qid) pour pouvoir l'annuler tant qu'il n'est pas collé.
 function enqueue(target, item) {
-  const queued = { ...item, qid: item.qid ?? randomUUID(), at: Date.now() };
+  const queued = { ...item, chain: item.chain ?? newChain(), qid: item.qid ?? randomUUID(), at: Date.now() };
   queues.set(target, [...(queues.get(target) ?? []), queued]);
   flush(target);
   notify();

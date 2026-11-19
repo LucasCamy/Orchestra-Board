@@ -12,6 +12,8 @@ import {
   useReactFlow,
 } from '@xyflow/react';
 import { Minimize2 } from 'lucide-react';
+import { BROWSER_DRAG_TYPE, browserDropPosition, createBrowserNode } from '../electron/browserModel.mjs';
+import { createLinearBoardNode, LINEAR_BOARD_DRAG } from '../electron/linearModel.mjs';
 import AgentDock from './components/AgentDock.jsx';
 import AgentLogo from './components/AgentLogo.jsx';
 import AgentsBar from './components/AgentsBar.jsx';
@@ -27,6 +29,9 @@ import MiniMapNode from './components/MiniMapNode.jsx';
 import NodeMenu from './components/NodeMenu.jsx';
 import NoteNode from './components/NoteNode.jsx';
 import PanelNode from './components/PanelNode.jsx';
+import InteractiveBrowserNode from './components/InteractiveBrowserNode.jsx';
+import LinearBoardNode from './components/LinearBoardNode.jsx';
+import LinearDrawer from './components/LinearDrawer.jsx';
 import VisualTestNode from './components/VisualTestNode.jsx';
 import QuitDialog from './components/QuitDialog.jsx';
 import ResumeDialog from './components/ResumeDialog.jsx';
@@ -66,7 +71,7 @@ import useT from './hooks/useT.js';
 import { DEFAULT_LINK } from './lib/links.js';
 import { PANELS, draggedPanel } from './lib/panels.js';
 
-const nodeTypes = { terminal: TerminalNode, note: NoteNode, text: TextNode, panel: PanelNode, visualTest: VisualTestNode };
+const nodeTypes = { terminal: TerminalNode, note: NoteNode, text: TextNode, panel: PanelNode, visualTest: VisualTestNode, interactiveBrowser: InteractiveBrowserNode, linearBoard: LinearBoardNode };
 const DUPLICATE_OFFSET = 40; // px : une copie apparaît en décalé de l'original
 const NOTE_SIZE = { width: 270, height: 180 }; // plus large que haut : les lignes écrites par un agent restent lisibles
 const VISUAL_TEST_SIZE = { width: 500, height: 480 };
@@ -162,6 +167,7 @@ function Workspace({ saved }) {
   }, []);
   // Panneau posé sur la map : son tiroir n'a plus besoin de rester ouvert.
   const closePanelDrawer = useCallback((panel) => (panel === 'usage' ? setUsageOpen(false) : setLogOpen(false)), []);
+  const openLinearSettings = useCallback(() => setSettingsOpen({ tab: 'general' }), []);
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [renameRequest, setRenameRequest] = useState(null); // tableau créé au clavier : on propose de le nommer
   const [launchRequest, setLaunchRequest] = useState(null); // « Lancer un agent ici » dans l'explorateur
@@ -290,6 +296,8 @@ function Workspace({ saved }) {
             focusAgent={focusAgent}
             onPanelPlaced={closePanelDrawer}
             onOpenMcp={(cardId) => setSettingsOpen({ cardId })}
+            onOpenLinearSettings={openLinearSettings}
+            flushSave={boards.flushSave}
           />
         </ReactFlowProvider>
         <ExplorerPanel
@@ -307,6 +315,7 @@ function Workspace({ saved }) {
           boardName={boards.boards.find((board) => board.id === activeId)?.name}
           nodes={content[activeId].nodes}
           mcpCardId={settingsOpen.cardId}
+          initialTab={settingsOpen.tab}
         />
       )}
       {tasksOpen && <TaskSequencesDialog boards={boards.boards} content={content} onFocus={(id) => { setTasksOpen(false); focusAgent(id); }} onClose={() => setTasksOpen(false)} />}
@@ -337,7 +346,7 @@ function Workspace({ saved }) {
 }
 
 // Un tableau : dock des agents et map. Remonté à chaque changement d'onglet.
-function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays, resumeChoice, running, launchRequest, onLaunchDone, boardList, focusAgent, onPanelPlaced, onOpenMcp }) {
+function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays, resumeChoice, running, launchRequest, onLaunchDone, boardList, focusAgent, onPanelPlaced, onOpenMcp, onOpenLinearSettings, flushSave }) {
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
   const [viewport, setViewport] = useState(initial.viewport);
@@ -382,10 +391,18 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
   const [editRequest, setEditRequest] = useState(null); // « Modifier le texte » d'un post-it ou d'un texte : { id, at }
   const [maximized, setMaximized] = useState(null); // case dont le terminal est affiché en grand (PLAN.md §7, 3.3)
   const [maxSlot, setMaxSlot] = useState(null);
+  const [linearOpen, setLinearOpen] = useState(false);
   const pendingMessages = usePendingMessages();
+  const edgesRef = useRef(edges);
+  edgesRef.current = edges;
+  const prepareLinearMove = useCallback(async (id) => {
+    if (!edgesRef.current.some((edge) => edge.source === id && edge.data?.mode === 'linear' && edge.data.enabled)) return false;
+    try { await flushSave(); return true; }
+    catch { return false; }
+  }, [flushSave]);
   const board = useMemo(
-    () => ({ boardId, tool, linkSource, branchTarget, branchPicker, setBranchPicker, linkEvents, pendingMessages, resumeChoice, renameRequest, editRequest, maximized, setMaximized, maxSlot, boardList, focusAgent }),
-    [boardId, tool, linkSource, branchTarget, branchPicker, linkEvents, pendingMessages, resumeChoice, renameRequest, editRequest, maximized, maxSlot, boardList, focusAgent],
+    () => ({ boardId, tool, linkSource, branchTarget, branchPicker, setBranchPicker, linkEvents, pendingMessages, resumeChoice, renameRequest, editRequest, maximized, setMaximized, maxSlot, boardList, focusAgent, prepareLinearMove, onOpenLinearSettings }),
+    [boardId, tool, linkSource, branchTarget, branchPicker, linkEvents, pendingMessages, resumeChoice, renameRequest, editRequest, maximized, maxSlot, boardList, focusAgent, prepareLinearMove, onOpenLinearSettings],
   );
 
   // F2 : renommer la case terminal choisie, ou celle dont le terminal a le curseur. En capture, pour que
@@ -471,22 +488,40 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
     if (tool === 'link' && document.activeElement?.closest('.terminal-node')) document.activeElement.blur();
   }, [tool]);
 
+  const isLinearConnection = useCallback(({ source, target }) => {
+    const from = nodesRef.current.find((node) => node.id === source);
+    const to = nodesRef.current.find((node) => node.id === target);
+    return from?.type === 'linearBoard' && to?.type === 'terminal' && Boolean(agentById(to.data.agentId).hooks);
+  }, [agentById]);
+
+  const connectLinear = useCallback(({ source, target }) => {
+    if (isLinearConnection({ source, target })) {
+      setEdges((all) => addEdge({ source, target, type: 'floating', data: { mode: 'linear', enabled: false } }, all));
+    }
+  }, [isLinearConnection, setEdges]);
+
   // Outil Lien : clic sur A (source, qui s'illumine) puis clic sur B = lien A -> B.
   const onNodeClick = useCallback(
     (_event, node) => {
       setSelectedStroke(null);
-      if (tool !== 'link' || !['terminal', 'note', 'visualTest'].includes(node.type)) return;
+      if (tool !== 'link' || !['terminal', 'note', 'visualTest', 'interactiveBrowser', 'linearBoard'].includes(node.type)) return;
       if (!linkSource || linkSource === node.id) {
         setLinkSource(linkSource ? null : node.id);
         return;
       }
       const sourceNode = nodes.find((n) => n.id === linkSource);
-      const isRunner = (n) => n?.type === 'visualTest';
-      if (isRunner(sourceNode) || isRunner(node)) {
-        const [agent, runner] = isRunner(node) ? [sourceNode, node] : [node, sourceNode];
+      if (sourceNode?.type === 'linearBoard' || node.type === 'linearBoard') {
+        connectLinear({ source: linkSource, target: node.id });
+        setLinkSource(null);
+        return;
+      }
+      const isBrowserTool = (n) => ['visualTest', 'interactiveBrowser'].includes(n?.type);
+      if (isBrowserTool(sourceNode) || isBrowserTool(node)) {
+        const [agent, target] = isBrowserTool(node) ? [sourceNode, node] : [node, sourceNode];
         setLinkSource(null);
         if (agent?.type !== 'terminal' || !agentById(agent.data.agentId).hooks) return;
-        setEdges((eds) => addEdge({ source: agent.id, target: runner.id, type: 'floating', data: { ...DEFAULT_LINK, mode: 'visual' } }, eds));
+        const mode = target.type === 'interactiveBrowser' ? 'browser' : 'visual';
+        setEdges((eds) => addEdge({ source: agent.id, target: target.id, type: 'floating', data: { ...DEFAULT_LINK, mode } }, eds));
         return;
       }
       // Un agent relié à un post-it : lien Note, toujours de l'agent vers le post-it. Pas de lien entre deux
@@ -511,7 +546,7 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
       setEdges((eds) => addEdge({ source: linkSource, target: node.id, type: 'floating', data }, eds));
       setLinkSource(null);
     },
-    [tool, linkSource, nodes, setNodes, setEdges, settings.general.linkMode, agentById, t],
+    [tool, linkSource, nodes, setNodes, setEdges, settings.general.linkMode, agentById, connectLinear, t],
   );
 
   // Post-it de ce tableau réécrit par un agent (lien Note).
@@ -570,6 +605,8 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
       texts: chosen.filter((n) => n.type === 'text').length,
       panels: chosen.filter((n) => n.type === 'panel').length,
       visualTests: chosen.filter((n) => n.type === 'visualTest').length,
+      browsers: chosen.filter((n) => n.type === 'interactiveBrowser').length,
+      linearBoards: chosen.filter((n) => n.type === 'linearBoard').length,
       strokes: stroke ? 1 : 0,
       nodeIds: chosen.map((n) => n.id),
       edgeIds: chosenEdges.map((e) => e.id),
@@ -707,6 +744,11 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
 
   const onDragOver = useCallback(
     (event) => {
+      if (event.dataTransfer.types.includes(BROWSER_DRAG_TYPE) || event.dataTransfer.types.includes(LINEAR_BOARD_DRAG)) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+        return;
+      }
       // « Branche » se lâche seulement sur une case terminal : elle s'allume au survol.
       if (draggingBranch) {
         event.preventDefault();
@@ -790,6 +832,43 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
   // « Lancer un agent ici » (clic droit dans l'explorateur) : nouvelle case au centre de la vue.
   const boardRef = useRef(null);
   useGridGlow(boardRef, glow && Boolean(GRID_VARIANTS[grid]), settings.appearance.glowSize);
+  const addBrowser = useCallback((center) => {
+    const browser = createBrowserNode(center);
+    setNodes((all) => [...all.map((node) => node.selected ? { ...node, selected: false } : node), browser]);
+    setTool('select');
+  }, [setNodes]);
+
+  const openBrowser = useCallback(() => {
+    const browsers = nodesRef.current.filter((node) => node.type === 'interactiveBrowser');
+    const browser = browsers.find((node) => node.selected) ?? browsers[0];
+    if (browser) {
+      setTool('select');
+      setNodes((all) => all.map((node) => Boolean(node.selected) === (node.id === browser.id) ? node : { ...node, selected: node.id === browser.id }));
+      const duration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 400;
+      fitView({ nodes: [{ id: browser.id }], duration, padding: 0.16, maxZoom: 1 });
+    } else if (boardRef.current) {
+      const { left, top, width, height } = boardRef.current.getBoundingClientRect();
+      addBrowser(screenToFlowPosition({ x: left + width / 2, y: top + height / 2 }));
+    }
+  }, [addBrowser, fitView, screenToFlowPosition, setNodes]);
+
+  const addLinear = useCallback((center) => {
+    const node = createLinearBoardNode(center);
+    setNodes((all) => [...all.map((current) => current.selected ? { ...current, selected: false } : current), node]);
+    setTool('select');
+    setLinearOpen(false);
+  }, [setNodes]);
+
+  const openLinear = useCallback(() => {
+    const boards = nodesRef.current.filter((node) => node.type === 'linearBoard');
+    const node = boards.find((item) => item.selected) ?? boards[0];
+    if (!node) { setLinearOpen((open) => !open); return; }
+    setLinearOpen(false);
+    setTool('select');
+    setNodes((all) => all.map((item) => Boolean(item.selected) === (item.id === node.id) ? item : { ...item, selected: item.id === node.id }));
+    const duration = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 400;
+    fitView({ nodes: [{ id: node.id }], duration, padding: 0.16, maxZoom: 1 });
+  }, [fitView, setNodes]);
   useEffect(() => {
     if (!launchRequest || !boardRef.current) return;
     const rect = boardRef.current.getBoundingClientRect();
@@ -801,6 +880,17 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
   const onDrop = useCallback(
     (event) => {
       event.preventDefault();
+      if (event.dataTransfer.getData(LINEAR_BOARD_DRAG) === 'linear') {
+        endDrag();
+        addLinear(screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+        return;
+      }
+      const browserCenter = browserDropPosition(event, screenToFlowPosition);
+      if (browserCenter) {
+        endDrag();
+        addBrowser(browserCenter);
+        return;
+      }
       if (draggingBranch) {
         const nodeId = branchTarget;
         endDrag();
@@ -823,7 +913,7 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
 
       addTerminal(agentId, cwd, screenToFlowPosition({ x: event.clientX, y: event.clientY }));
     },
-    [draggedAgentId, draggingBranch, branchTarget, openBranchPicker, endDrag, screenToFlowPosition, addTerminal, addPanel, activeFolder, homeDir, agentById, t],
+    [draggedAgentId, draggingBranch, branchTarget, openBranchPicker, endDrag, screenToFlowPosition, addTerminal, addPanel, addBrowser, addLinear, activeFolder, homeDir, agentById, t],
   );
 
   const maximizedNode = maximized && nodes.find((n) => n.id === maximized && n.type === 'terminal');
@@ -837,6 +927,8 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
         onDragStart={setDraggedAgentId}
         onBranchDragStart={() => setDraggingBranch(true)}
         onDragEnd={endDrag}
+        onBrowserOpen={openBrowser}
+        onLinearOpen={openLinear}
       />
       <main
         ref={boardRef}
@@ -868,7 +960,10 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
             defaultViewport={initial.viewport ?? undefined}
             fitView={initial.fitAtStart === true}
             nodesDraggable={tool === 'select'}
-            nodesConnectable={false}
+            nodesConnectable={tool === 'select'}
+            isValidConnection={isLinearConnection}
+            onConnect={connectLinear}
+            connectOnClick={false}
             elementsSelectable={tool === 'select'}
             panOnDrag={tool === 'pen' ? [1] : true}
             minZoom={0.1}
@@ -912,6 +1007,10 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
           </ReactFlow>
         </BoardContext.Provider>
         <BoardToolbar tool={tool} onChange={setTool} />
+        {linearOpen && <LinearDrawer onClose={() => setLinearOpen(false)} onSettings={onOpenLinearSettings} onAdd={() => {
+          const { left, top, width, height } = boardRef.current.getBoundingClientRect();
+          addLinear(screenToFlowPosition({ x: left + width / 2, y: top + height / 2 }));
+        }} />}
         {tool === 'select' && selectedCount >= 2 && <LayoutToolbar
           count={selectedCount}
           groupCount={liveGroups.length}

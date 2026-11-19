@@ -1,8 +1,11 @@
 import { useState } from 'react';
-import { ChevronRight, GitBranch } from 'lucide-react';
+import { ChevronRight, GitBranch, Globe } from 'lucide-react';
+import { BROWSER_DRAG_TYPE } from '../../electron/browserModel.mjs';
+import { LINEAR_BOARD_DRAG } from '../../electron/linearModel.mjs';
 import { BRANCH_DRAG_TYPE, DRAG_TYPE } from '../agents.js';
 import { useSettings } from '../context/SettingsContext.jsx';
 import AgentLogo from './AgentLogo.jsx';
+import LinearLogo from './LinearLogo.jsx';
 import ModelMenu from './ModelMenu.jsx';
 import useT from '../hooks/useT.js';
 import { emptyDragImage } from '../lib/panels.js';
@@ -10,7 +13,7 @@ import { emptyDragImage } from '../lib/panels.js';
 // Dock de gauche : un carré par agent, le nom en infobulle, à glisser sur la map.
 // Sous un trait, le carré « Branche », à glisser sur une case (PLAN.md §3.10).
 // Claude Code et Codex ont une petite flèche sur le côté : le modèle de leurs prochaines cases.
-export default function AgentDock({ draggedAgentId, draggingBranch, onDragStart, onBranchDragStart, onDragEnd }) {
+export default function AgentDock({ draggedAgentId, draggingBranch, onDragStart, onBranchDragStart, onDragEnd, onBrowserOpen, onLinearOpen }) {
   const { visibleAgents, settings, setModel } = useSettings();
   const [modelMenu, setModelMenu] = useState(null); // { agent, anchor }
   const t = useT();
@@ -63,6 +66,14 @@ export default function AgentDock({ draggedAgentId, draggingBranch, onDragStart,
         );
       })}
       <div className="dock-separator" />
+      <button type="button" className="dock-item dock-linear" draggable aria-label={t('dock.linear')}
+        onDragStart={(event) => {
+          event.dataTransfer.setData(LINEAR_BOARD_DRAG, 'linear');
+          event.dataTransfer.effectAllowed = 'copy';
+        }} onClick={onLinearOpen}>
+        <LinearLogo size={21} />
+        <span className="tooltip" aria-hidden="true">{t('dock.linear')}</span>
+      </button>
       <div
         className={`dock-item dock-branch ${draggingBranch ? 'dragging' : ''}`}
         draggable
@@ -73,6 +84,14 @@ export default function AgentDock({ draggedAgentId, draggingBranch, onDragStart,
         <GitBranch size={22} />
         <span className="tooltip" role="tooltip">{t('dock.branch')}</span>
       </div>
+      <button type="button" className="dock-item dock-browser" draggable aria-label={t('dock.browser')}
+        onDragStart={(event) => {
+          event.dataTransfer.setData(BROWSER_DRAG_TYPE, 'browser');
+          event.dataTransfer.effectAllowed = 'copy';
+        }} onClick={onBrowserOpen}>
+        <Globe size={22} aria-hidden="true" />
+        <span className="tooltip" aria-hidden="true">{t('dock.browser')}</span>
+      </button>
       {modelMenu && (
         <ModelMenu
           agent={modelMenu.agent}

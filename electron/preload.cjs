@@ -173,6 +173,18 @@ contextBridge.exposeInMainWorld('mcpSettings', {
   save: (boardId, cardId, change) => ipcRenderer.invoke('mcp:save', boardId, cardId, change),
 });
 
+contextBridge.exposeInMainWorld('linearBoard', {
+  connection: () => ipcRenderer.invoke('linear:connection'),
+  saveKey: (key) => ipcRenderer.invoke('linear:saveKey', key),
+  fetchIssues: (scope) => ipcRenderer.invoke('linear:fetchIssues', scope),
+  updateIssueStatus: (input, context) => ipcRenderer.invoke('linear:updateIssueStatus', input, context),
+  onIssueChanged: (callback) => {
+    const listener = (_event, change) => callback(change);
+    ipcRenderer.on('linear:issueChanged', listener);
+    return () => ipcRenderer.removeListener('linear:issueChanged', listener);
+  },
+});
+
 // Diagnostic des intégrations : commande trouvée, version, dernier hook de chaque case lancée.
 contextBridge.exposeInMainWorld('diagnostics', {
   agents: () => ipcRenderer.invoke('diag:agents'),
@@ -196,6 +208,13 @@ contextBridge.exposeInMainWorld('notes', {
     ipcRenderer.on('note:write', listener);
     return () => ipcRenderer.removeListener('note:write', listener);
   },
+});
+
+contextBridge.exposeInMainWorld('interactiveBrowser', {
+  register: (guestId, boardId, browserId, tabId) => ipcRenderer.invoke('browser:register', guestId, boardId, browserId, tabId),
+  cookies: (guestId, url) => ipcRenderer.invoke('browser:cookies', guestId, url),
+  removeCookies: (guestId, url) => ipcRenderer.invoke('browser:removeCookies', guestId, url),
+  savePreferenceCookie: (guestId, url, preference) => ipcRenderer.invoke('browser:savePreferenceCookie', guestId, url, preference),
 });
 
 contextBridge.exposeInMainWorld('visualTests', {

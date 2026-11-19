@@ -1,7 +1,8 @@
 import { EdgeLabelRenderer } from '@xyflow/react';
-import { MonitorCheck, Network, Pause, SquareTerminal, StickyNote } from 'lucide-react';
+import { Globe, MonitorCheck, Network, Pause, SquareTerminal, StickyNote } from 'lucide-react';
 import useT from '../hooks/useT.js';
 import LinkReview from './LinkReview.jsx';
+import LinearLogo from './LinearLogo.jsx';
 
 // Étiquette au milieu d'un lien (affichée seulement s'il y a la place) : état du lien et tours.
 // Un clic ouvre le panneau du lien.
@@ -15,6 +16,8 @@ export default function LinkLabel({ x, y, state, prompt, targetName, turns, maxT
     case 'terminal':
     case 'note':
     case 'visual':
+    case 'browser':
+    case 'linear':
     case 'limit':
       text = t(`link.label.${state}`);
       break;
@@ -41,7 +44,9 @@ export default function LinkLabel({ x, y, state, prompt, targetName, turns, maxT
           {state === 'terminal' && <SquareTerminal size={13} />}
           {state === 'note' && <StickyNote size={13} />}
           {state === 'visual' && <MonitorCheck size={13} aria-hidden="true" />}
-          {!['disabled', 'delegate', 'terminal', 'note', 'visual'].includes(state) && <span className="link-label-dot" />}
+          {state === 'browser' && <Globe size={13} aria-hidden="true" />}
+          {state === 'linear' && <LinearLogo size={13} />}
+          {!['disabled', 'delegate', 'terminal', 'note', 'visual', 'browser', 'linear'].includes(state) && <span className="link-label-dot" />}
           <span className="link-label-text">{text}</span>
           {showTurns && <span className="link-label-turns">{turns}/{maxTurns}</span>}
         </button>

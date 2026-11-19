@@ -220,12 +220,17 @@ function instantiate(id, cwd, replacements = {}, agents = settings.load().agents
     const target = byId.get(edge.target);
     const sourceAgent = agents.find((agent) => agent.id === source?.data.agentId);
     const targetAgent = agents.find((agent) => agent.id === target?.data.agentId);
+    if (edge.data.mode === 'linear') {
+      if (source?.type !== 'linearBoard' || !targetAgent?.hooks) throw new Error(t('team.incompatible'));
+      continue;
+    }
     const terminalRelay = edge.data.mode === 'relay' && edge.data.terminalFallback;
     if (!terminalRelay && !sourceAgent?.hooks) throw new Error(t('team.incompatible'));
     if (edge.data.mode === 'delegate' && !targetAgent?.hooks) throw new Error(t('team.incompatible'));
     if (edge.data.bidirectional && !terminalRelay && !targetAgent?.hooks) throw new Error(t('team.incompatible'));
     if (edge.data.mode === 'note' && target?.type !== 'note') throw new Error(t('team.incompatible'));
     if (edge.data.mode === 'visual' && target?.type !== 'visualTest') throw new Error(t('team.incompatible'));
+    if (edge.data.mode === 'browser' && target?.type !== 'interactiveBrowser') throw new Error(t('team.incompatible'));
     if (edge.data.mode === 'relay' && (source?.type !== 'terminal' || target?.type !== 'terminal')) throw new Error(t('team.incompatible'));
     if (edge.data.mode === 'terminal' && target?.data.agentId !== 'shell') throw new Error(t('team.incompatible'));
   }
