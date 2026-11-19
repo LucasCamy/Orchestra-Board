@@ -58,6 +58,7 @@ test('AGY stop hooks relay the current turn only, after the agent is fully idle'
   const completion = adapter.normalize({ ...hook, hookEventName: 'Stop', fullyIdle: true });
   assert.equal(completion.session_id, sessionId);
   assert.equal(completion.transcript_path, transcript);
+  assert.equal(adapter.normalize({ conversationId: sessionId, hookEventName: 'Stop', fullyIdle: true }).transcript_path, transcript);
   assert.equal(adapter.normalize({ ...hook, hookEventName: 'Stop', transcriptPath: path.join(root, 'unrelated.jsonl') }).transcript_path, null);
   assert.equal(adapter.normalize({ ...hook, hookEventName: 'Stop', conversationId: 'not-a-uuid' }).session_id, null);
   const steps = [

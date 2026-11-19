@@ -76,9 +76,11 @@ function normalize(payload) {
 }
 
 function transcriptFor(sessionId, reportedPath) {
-  if (typeof reportedPath !== 'string' || !path.isAbsolute(reportedPath)) return null;
   const expected = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'brain', sessionId, '.system_generated', 'logs', 'transcript.jsonl');
-  return path.relative(expected, reportedPath) === '' ? expected : null;
+  if (typeof reportedPath === 'string' && path.isAbsolute(reportedPath)) {
+    return path.relative(expected, reportedPath) === '' ? expected : null;
+  }
+  return reportedPath == null ? expected : null;
 }
 
 module.exports = { prepare, remove, clearAll, normalize, settingsFor, mcpConfigFor };
