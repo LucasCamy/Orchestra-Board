@@ -10,6 +10,18 @@ const CONVERSATION_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-
 const runtimeDir = () => path.join(app.getPath('userData'), 'antigravity-sessions');
 const workspaces = new Map();
 
+function settingsFor(url, curl) {
+  const handler = { type: 'command', command: `${curl} -s -m 3 --data-binary @- "${url}"`, timeout: 5 };
+  return { orchestra: { SessionStart: [handler], PreInvocation: [handler], Stop: [handler] } };
+}
+
+function mcpConfigFor(servers, orchestra) {
+  const mcpServers = Object.fromEntries(Object.entries(servers).map(([name, { type, url, ...config }]) => [
+    name, type === 'http' ? { serverUrl: url, ...config } : config,
+  ]));
+  return { mcpServers: { ...mcpServers, orchestra: { ...orchestra, timeoutSeconds: 330 } } };
+}
+
 // The CLI discovers hooks and MCPs in every workspace passed to --add-dir.
 // A temporary workspace keeps these files scoped to this terminal.
 function prepare(id, servers, shell) {
@@ -19,21 +31,13 @@ function prepare(id, servers, shell) {
     const configDir = path.join(workspace, '.agents');
     fs.mkdirSync(configDir, { mode: 0o700 });
     const curl = process.platform === 'win32' ? 'curl.exe' : 'curl';
-    const command = `${curl} -s -m 3 --data-binary @- "${hookUrl(id)}"`;
-    const handler = { type: 'command', command, timeout: 5 };
-    fs.writeFileSync(path.join(configDir, 'hooks.json'), JSON.stringify({
-      orchestra: { SessionStart: [handler], PreInvocation: [handler], Stop: [handler] },
-    }), { mode: 0o600 });
-    const mcpServers = Object.fromEntries(Object.entries(servers).map(([name, { type, url, ...config }]) => [
-      name, type === 'http' ? { serverUrl: url, ...config } : config,
-    ]));
-    mcpServers.orchestra = {
+    fs.writeFileSync(path.join(configDir, 'hooks.json'), JSON.stringify(settingsFor(hookUrl(id), curl)), { mode: 0o600 });
+    const config = mcpConfigFor(servers, {
       command: process.execPath,
       args: [mcpServerPath()],
       env: { ELECTRON_RUN_AS_NODE: '1', ORCHESTRA_URL: toolUrl(id) },
-      timeoutSeconds: 330,
-    };
-    fs.writeFileSync(path.join(configDir, 'mcp_config.json'), JSON.stringify({ mcpServers }), { mode: 0o600 });
+    });
+    fs.writeFileSync(path.join(configDir, 'mcp_config.json'), JSON.stringify(config), { mode: 0o600 });
   } catch (error) {
     fs.rmSync(workspace, { recursive: true, force: true });
     throw error;
@@ -77,4 +81,4 @@ function transcriptFor(sessionId, reportedPath) {
   return path.relative(expected, reportedPath) === '' ? expected : null;
 }
 
-module.exports = { prepare, remove, clearAll, normalize };
+module.exports = { prepare, remove, clearAll, normalize, settingsFor, mcpConfigFor };

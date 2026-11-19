@@ -154,7 +154,7 @@ const TOOLS = [
   {
     name: 'read_note',
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    description: 'Returns the current text of a linked sticky note. The user may have edited it: read it before rewriting it.',
+    description: 'Returns the current text of a linked sticky note. Read it before rewriting it. For the Big Brain writer, returns JSON with text and revision.',
     inputSchema: {
       type: 'object',
       properties: { name: { type: 'string', description: 'Name of the note, as given by list_notes (e.g. "Note 1").' } },
@@ -182,13 +182,14 @@ const TOOLS = [
     name: 'write_note',
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     description:
-      'Replaces the whole text of a linked sticky note; the user sees it at once on the map. Keep it short. ' +
+      'Replaces the whole text of a linked sticky note. Only the Antigravity Architect can write to the Big Brain, using the revision from read_note. ' +
       'Status lines are shown with icons: "- [x] Done", "- [~] In progress", "- [ ] To do". Other lines are plain text.',
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Name of the note.' },
         text: { type: 'string', description: 'The complete new text of the note.' },
+        revision: { type: 'string', description: 'Revision from read_note. Required for Big Brain edits.' },
       },
       required: ['name', 'text'],
       additionalProperties: false,

@@ -1,4 +1,4 @@
-import { ClipboardList, Folder, Inbox, Search, Settings, Users } from 'lucide-react';
+import { ClipboardList, Folder, GitPullRequest, Inbox, Search, Settings, Users } from 'lucide-react';
 import lockup from '../assets/orchestra-lockup.svg';
 import lockupLight from '../assets/orchestra-lockup-light.svg';
 import { useSettings } from '../context/SettingsContext.jsx';
@@ -9,7 +9,7 @@ import BoardTabs from './BoardTabs.jsx';
 
 // Seule barre en haut de la fenêtre (elle sert aussi à la déplacer) : logo et nom, onglets des tableaux,
 // dossier actif (donné au prochain agent), paramètres, puis les boutons Windows.
-export default function TopBar({ boards, boardsWithNews, renameRequest, onOpenSettings, onOpenTasks, onOpenInbox, onOpenTeams, onOpenSearch, blockerCount = 0 }) {
+export default function TopBar({ boards, boardsWithNews, renameRequest, onOpenSettings, onOpenTasks, onOpenInbox, onOpenTeams, onOpenSearch, onOpenWorkerChanges, blockerCount = 0 }) {
   const { activeFolder, homeDir } = useWorkspace();
   const { settings } = useSettings();
   const t = useT();
@@ -17,6 +17,7 @@ export default function TopBar({ boards, boardsWithNews, renameRequest, onOpenSe
     { className: 'sequence-open', Icon: ClipboardList, label: t('sequences.title'), title: t('sequences.title'), onClick: onOpenTasks },
     { className: 'search-toggle', Icon: Search, label: t('topbar.search'), title: t('search.open'), onClick: onOpenSearch },
     { className: 'teams-toggle', Icon: Users, label: t('topbar.team'), title: t('team.title'), onClick: onOpenTeams },
+    ...(onOpenWorkerChanges ? [{ className: 'worker-review-toggle', Icon: GitPullRequest, label: t('workerChanges.shortTitle'), title: t('workerChanges.title'), onClick: onOpenWorkerChanges }] : []),
     { className: 'inbox-toggle', Icon: Inbox, label: t('topbar.inbox'), title: t('inbox.title'), onClick: onOpenInbox, count: blockerCount },
     { className: 'settings-toggle', Icon: Settings, label: t('topbar.settingsLabel'), title: t('topbar.settings'), onClick: onOpenSettings },
   ];

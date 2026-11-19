@@ -62,7 +62,7 @@ export default function useBoards(saved) {
     return id;
   };
 
-  const addBoard = async (name, state, mcp, backlog) => {
+  const addBoard = async (name, state, mcp, backlog, bigBrain) => {
     if (latest.current.boards.length >= 50) return false;
     const id = 'board-' + crypto.randomUUID();
     const next = [...latest.current.boards, { id, name: name.slice(0, 40) }];
@@ -79,8 +79,8 @@ export default function useBoards(saved) {
     clearTimeout(saveTimer.current);
     try {
       const workspace = { activeBoardId: id, boards: next.map((board) => ({ ...board, ...serializeBoard(content.current[board.id]) })) };
-      if (mcp || backlog) {
-        const result = await window.workspace.setPreset(workspace, mcp, backlog);
+      if (mcp || backlog || bigBrain) {
+        const result = await window.workspace.setPreset(workspace, mcp, backlog, bigBrain);
         if (result.error) {
           delete content.current[id];
           scheduleSave();

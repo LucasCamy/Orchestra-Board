@@ -38,6 +38,13 @@ function recipes() {
   const node = (id, agentId, label, x, y, role) => ({ id, type: 'terminal', position: { x, y }, style: { width: 640, height: 400 }, data: { agentId, label, ...(role && { role }) } });
   const link = (id, source, target, mode, data = {}) => ({ id, source, target, data: { mode, enabled: true, maxTurns: 3, ...data } });
   const backlog = (x, y) => ({ id: 'plan', type: 'note', position: { x, y }, style: { width: 320, height: 230 }, data: { label: t('team.backlog'), text: t('team.maintenancePlan') } });
+  const bigBrain = {
+    id: 'big-brain',
+    type: 'note',
+    position: { x: 380, y: 0 },
+    style: { width: 420, height: 280 },
+    data: { label: t('team.bigBrain'), text: t('team.bigBrainSeed'), readOnlyForWorkers: true },
+  };
   const runner = (x, y) => ({ id: 'visual', type: 'visualTest', position: { x, y }, style: { width: 490, height: 450 }, data: { expectedStatus: 200 } });
   const mcp = { board: [], cards: { lead: ['linear'], qa: ['chrome-devtools'] } };
   const maintenance = {
@@ -71,17 +78,19 @@ function recipes() {
     builtin: true,
     mcp,
     backlog: 'plan',
+    bigBrain: { noteId: bigBrain.id, architectId: 'architect' },
     board: templateBoard({
       nodes: [
-        node('architect', 'antigravity', t('team.architect'), 0, 0, t('team.guide.architect')),
-        node('lead', 'claude-code', t('team.techLead'), 760, 0, t('team.guide.linear')),
-        node('backend', 'codex', t('team.backend'), 760, 520, `${t('team.guide.backend')}\n\n${t('team.guide.developer')}`),
-        node('frontend', 'claude-code', t('team.frontend'), 1520, 0, `${t('team.guide.frontend')}\n\n${t('team.guide.developer')}`),
-        node('qa', 'codex', t('team.auditor'), 1520, 520, t('team.guide.chrome')),
-        node('msbuild', 'shell', t('team.msbuildTerminal'), 760, 1040),
-        node('npm', 'shell', t('team.npmTerminal'), 2280, 0),
-        backlog(0, 520),
-        runner(2280, 520),
+        node('architect', 'antigravity', t('team.architect'), 0, 380, `${t('team.guide.bigBrainArchitect')}\n\n${t('team.guide.architect')}`),
+        node('lead', 'claude-code', t('team.techLead'), 760, 380, `${t('team.guide.bigBrainWorker')}\n\n${t('team.guide.linear')}`),
+        node('backend', 'codex', t('team.backend'), 760, 900, `${t('team.guide.bigBrainWorker')}\n\n${t('team.guide.backend')}\n\n${t('team.guide.developer')}`),
+        node('frontend', 'claude-code', t('team.frontend'), 1520, 380, `${t('team.guide.bigBrainWorker')}\n\n${t('team.guide.frontend')}\n\n${t('team.guide.developer')}`),
+        node('qa', 'codex', t('team.auditor'), 1520, 900, `${t('team.guide.bigBrainWorker')}\n\n${t('team.guide.chrome')}`),
+        node('msbuild', 'shell', t('team.msbuildTerminal'), 760, 1420),
+        node('npm', 'shell', t('team.npmTerminal'), 2280, 380),
+        backlog(0, 900),
+        runner(2280, 900),
+        bigBrain,
       ],
       edges: [
         link('architect-lead', 'architect', 'lead', 'delegate'),
@@ -95,6 +104,7 @@ function recipes() {
         link('backend-qa', 'backend', 'qa', 'delegate', { bidirectional: true }),
         link('frontend-qa', 'frontend', 'qa', 'delegate', { bidirectional: true }),
         link('qa-visual', 'qa', 'visual', 'visual'),
+        ...['architect', 'lead', 'backend', 'frontend', 'qa'].map((id) => link(`${id}-big-brain`, id, bigBrain.id, 'note')),
       ],
     }),
   };
@@ -107,6 +117,15 @@ function recipes() {
   ];
 }
 
+function templateBigBrain(board, binding) {
+  const noteId = board.nodes.find((node) => node.id === binding?.noteId && node.type === 'note' && node.data.readOnlyForWorkers)?.id;
+  const architectId = board.nodes.find((node) => node.id === binding?.architectId && node.type === 'terminal')?.id;
+  for (const node of board.nodes) {
+    if (node.type === 'note' && (node.id !== noteId || !architectId)) delete node.data.readOnlyForWorkers;
+  }
+  return noteId && architectId ? { noteId, architectId } : null;
+}
+
 function read() {
   try {
     const value = JSON.parse(fs.readFileSync(filePath(), 'utf8'));
@@ -115,7 +134,8 @@ function read() {
       const board = templateBoard(item.board);
       const mcp = sanitizePreset(item.mcp, terminals(board));
       const backlog = board.nodes.find((node) => node.type === 'note' && node.id === item.backlog)?.id;
-      return { id: item.id, name: item.name.slice(0, 40), builtin: false, board, ...(mcp && { mcp }), ...(backlog && { backlog }) };
+      const bigBrain = templateBigBrain(board, item.bigBrain);
+      return { id: item.id, name: item.name.slice(0, 40), builtin: false, board, ...(mcp && { mcp }), ...(backlog && { backlog }), ...(bigBrain && { bigBrain }) };
     });
   } catch (error) {
     if (error.code === 'ENOENT') return [];
@@ -132,7 +152,7 @@ function write(list) {
 
 function list() { return [...recipes(), ...read()]; }
 
-function save(name, input, boardId, getNoteFile = () => null) {
+function save(name, input, boardId, getNoteFile = () => null, getBigBrain = () => null) {
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 40 || /[\r\n\0]/.test(name)) throw new Error(t('team.invalidName'));
   const templates = read();
   if (templates.length >= MAX_TEMPLATES) throw new Error(t('team.limit'));
@@ -148,7 +168,8 @@ function save(name, input, boardId, getNoteFile = () => null) {
     return file && ['backlog.md', 'todo.md'].includes(path.basename(file).toLowerCase()) &&
       folders.some((folder) => path.relative(folder, path.dirname(file)) === '');
   })?.id;
-  const item = { id: 'team-' + randomUUID(), name: name.trim(), builtin: false, board, ...(mcp && { mcp }), ...(backlog && { backlog }) };
+  const bigBrain = templateBigBrain(board, getBigBrain(boardId));
+  const item = { id: 'team-' + randomUUID(), name: name.trim(), builtin: false, board, ...(mcp && { mcp }), ...(backlog && { backlog }), ...(bigBrain && { bigBrain }) };
   write([...templates, item]);
   return item;
 }
@@ -214,20 +235,22 @@ function instantiate(id, cwd, replacements = {}, agents = settings.load().agents
     cards: Object.fromEntries(Object.entries(template.mcp.cards).map(([key, servers]) => [ids.get(key), servers])),
   };
   const backlog = template.backlog && { noteId: ids.get(template.backlog), cwd };
+  const bigBrain = template.bigBrain && { noteId: ids.get(template.bigBrain.noteId), architectId: ids.get(template.bigBrain.architectId), cwd };
   return {
     name: template.name,
     board: { nodes, edges, groups, strokes: template.board.strokes.map((stroke) => ({ ...stroke, id: 'stroke-' + randomUUID() })), viewport: template.board.viewport },
     ...(mcp && { mcp }),
     ...(backlog && { backlog }),
+    ...(bigBrain && { bigBrain }),
   };
 }
 
-function register(getNoteFile) {
+function register(getNoteFile, getBigBrain) {
   const handle = (name, fn) => ipcMain.handle(name, async (_e, ...args) => {
     try { return { value: await fn(...args) }; } catch (error) { return { error: error.message }; }
   });
   handle('teams:list', list);
-  handle('teams:save', (name, input, boardId) => save(name, input, boardId, getNoteFile));
+  handle('teams:save', (name, input, boardId) => save(name, input, boardId, getNoteFile, getBigBrain));
   handle('teams:remove', (id) => {
     const templates = read();
     if (!templates.some((item) => item.id === id)) throw new Error(t('team.missing'));

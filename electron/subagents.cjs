@@ -70,10 +70,13 @@ function createSubagents({ parent, agent, launch, stop, write, snapshot, emit, l
     entries.set(id, entry);
     changed(parentId);
     entry.startup = setTimeout(() => failStartup(entry, 'card.subagents.unconfirmed'), 90000);
+    const launchFailed = () => {
+      if (entries.get(id) === entry && entry.phase === 'starting') failStartup(entry, 'card.subagents.launchFailed');
+    };
     try {
-      launch(entry, target, target.id === owner.agentId ? owner.model : undefined);
+      Promise.resolve(launch(entry, target, target.id === owner.agentId ? owner.model : undefined)).catch(launchFailed);
     } catch {
-      failStartup(entry, 'card.subagents.launchFailed');
+      launchFailed();
     }
     return reply.finally(() => {
       clearTimeout(timeout);
@@ -171,6 +174,12 @@ function createSubagents({ parent, agent, launch, stop, write, snapshot, emit, l
   return {
     list, close, callTool, onHook, onOutput, onExit,
     kind: (id) => entries.get(id)?.hooks,
+    canLaunch: (id) => entries.get(id)?.phase === 'starting',
+    parentId: (id) => entries.get(id)?.parentId,
+    blockPrompt: (id, reason) => {
+      const entry = entries.get(id);
+      if (entry && !entry.output) finish(entry, 'failed', reason);
+    },
     snapshot: (id) => entries.has(id) ? entries.get(id).output ?? snapshot(id) : null,
     write: (id, data) => {
       const entry = entries.get(id);

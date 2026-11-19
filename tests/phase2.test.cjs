@@ -123,7 +123,7 @@ test('the maintenance preset provides Linear and Chrome roles plus a project tes
 test('enterprise roles have independent agent choices and the expected collaboration paths', (t) => {
   const { teams, directory } = templates(t);
   const setup = teams.instantiate('recipe-enterprise-squad', directory, {}, agents, '', { backend: 'claude-code' });
-  const [architect, lead, backend, frontend, qa, msbuild, npm, plan, visual] = setup.board.nodes;
+  const [architect, lead, backend, frontend, qa, msbuild, npm, plan, visual, bigBrain] = setup.board.nodes;
   const linked = (from, to, mode, twoWay = false) =>
     setup.board.edges.some(({ source, target, data }) => source === from.id && target === to.id && data.mode === mode && data.bidirectional === twoWay);
   assert.equal(architect.data.agentId, 'antigravity');
@@ -138,8 +138,25 @@ test('enterprise roles have independent agent choices and the expected collabora
   assert.ok(linked(backend, qa, 'delegate', true));
   assert.ok(linked(frontend, qa, 'delegate', true));
   assert.ok(linked(qa, visual, 'visual'));
+  assert.deepEqual(setup.bigBrain, { noteId: bigBrain.id, architectId: architect.id, cwd: directory });
+  assert.ok([architect, lead, backend, frontend, qa].every((card) => linked(card, bigBrain, 'note')));
+  assert.ok([lead, backend, frontend, qa].every((card) => card.data.role.startsWith('team.guide.bigBrainWorker')));
   assert.deepEqual(setup.backlog, { noteId: plan.id, cwd: directory });
   assert.deepEqual(setup.mcp.cards, { [lead.id]: ['linear'], [qa.id]: ['chrome-devtools'] });
+});
+
+test('a saved Enterprise preset recreates the Big Brain binding with new IDs in the selected project', (t) => {
+  const { teams, directory } = templates(t);
+  const source = teams.instantiate('recipe-enterprise-squad', directory, {}, agents);
+  const saved = teams.save('Saved squad', source.board, 'source', () => null, () => source.bigBrain);
+  assert.deepEqual(saved.bigBrain, { noteId: source.bigBrain.noteId, architectId: source.bigBrain.architectId });
+  const other = path.join(directory, 'other');
+  fs.mkdirSync(other);
+  const instance = teams.instantiate(saved.id, other, {}, agents);
+  assert.equal(instance.bigBrain.cwd, other);
+  assert.notEqual(instance.bigBrain.noteId, source.bigBrain.noteId);
+  assert.notEqual(instance.bigBrain.architectId, source.bigBrain.architectId);
+  assert.ok(instance.board.nodes.some(({ id, data }) => id === instance.bigBrain.noteId && data.readOnlyForWorkers));
 });
 
 test('saving a project backlog as a preset retains only its portable binding intent', (t) => {

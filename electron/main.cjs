@@ -23,6 +23,8 @@ const noteLink = require('./noteLink.cjs');
 const visualTests = require('./visualTestRunner.cjs');
 const visualTestLink = require('./visualTestLink.cjs');
 const { createNoteFiles, registerNoteFiles } = require('./noteFiles.cjs');
+const { createWorkerSandbox } = require('./workerSandbox.cjs');
+const { createWorkerChanges } = require('./workerChanges.cjs');
 const activityLog = require('./activityLog.cjs');
 const diagnostics = require('./diagnostics.cjs');
 const tasksHandlers = require('./tasksHandlers.cjs');
@@ -245,11 +247,26 @@ terminalLink.init({
   emit: emitLink,
 });
 
-const noteFiles = createNoteFiles(app.getPath('userData'), (id, state) => send('note:file:change', id, state));
+const workerSandbox = createWorkerSandbox(app.getPath('userData'));
+const workerChanges = createWorkerChanges(app.getPath('userData'), workerSandbox);
+const noteFiles = createNoteFiles(app.getPath('userData'), (id, state) => {
+  send('note:file:change', id, state);
+  try { workerSandbox.sync(id, state); }
+  catch (error) { console.error('Worker rules synchronization failed:', error.code); }
+});
+function canWriteBigBrain(caller, noteId) {
+  const binding = noteFiles.bigBrain(caseBoards.get(caller));
+  return binding?.architectId === caller && binding.noteId === noteId &&
+    caseAgents.get(caller) === 'antigravity' && agentStatus.kind(caller) === 'antigravity';
+}
+
 noteLink.init({
   log: activityLog.add,
   write: (id, text) => send('note:write', id, text),
-  file: noteFiles.get,
+  file: noteFiles.getFresh,
+  isBigBrain: noteFiles.isBigBrain,
+  canWriteBigBrain,
+  writeBigBrain: noteFiles.writeBigBrain,
   emit: emitLink,
 });
 
@@ -269,7 +286,91 @@ function callTool(caller, name, args, signal) {
 
 const caseAgents = new Map(); // agent lancé dans chaque case ; seuls ses hooks peuvent définir la session
 const caseModels = new Map();
+const sandboxCases = new Set();
+const startingCards = new Map();
 const configuredAgent = (id) => settingsStore.load().agents.find((agent) => agent.id === id);
+function prepareWorker({ id, boardId, owner, cwd, agent, model, servers, cancelled }) {
+  const binding = noteFiles.bigBrain(boardId);
+  const board = workspaceStore.get().boards.find((entry) => entry.id === boardId);
+  if (!binding) {
+    if (board?.nodes.some((node) => node.type === 'note' && node.data.readOnlyForWorkers)) throw new Error('workerSandbox.rules');
+    return null;
+  }
+  if (!owner && binding.architectId === id && agent.id === 'antigravity' && agent.hooks === 'antigravity') return null;
+  if (noteFiles.readBigBrain(boardId)?.error) throw new Error('workerSandbox.rules');
+  return workerChanges.initialize(workerSandbox.target(boardId, cwd)).then(() => {
+    if (cancelled()) return null;
+    return workerSandbox.prepare({
+      id, cwd, boardId, noteId: binding.noteId, state: noteFiles.readBigBrain(boardId), agent,
+      model: settingsStore.MODEL.test(model ?? '') ? model : null, servers,
+    });
+  });
+}
+
+function reviewTargets(boardId) {
+  const binding = noteFiles.bigBrain(boardId);
+  const board = workspaceStore.get().boards.find((entry) => entry.id === boardId);
+  if (!binding || !board) return [];
+  const folders = new Set([path.dirname(binding.file)]);
+  for (const { type, data } of board.nodes) {
+    if (type === 'terminal' && (data.worktree || data.cwd)) folders.add(data.worktree || data.cwd);
+  }
+  const targets = new Map();
+  for (const folder of folders) {
+    try {
+      const project = workerSandbox.target(boardId, folder);
+      targets.set(project.id, project);
+    } catch { /* Invalid host folders cannot be destinations. */ }
+  }
+  return [...targets.values()];
+}
+
+const resolveReviewTarget = (boardId, targetId) => {
+  if (workspaceStore.get().activeBoardId !== boardId) throw Object.assign(Error(), { reviewKey: 'workerChanges.scope' });
+  const target = reviewTargets(boardId).find(({ id }) => id === targetId);
+  if (!target) throw Object.assign(Error(), { reviewKey: 'workerChanges.scope' });
+  return target;
+};
+
+ipcMain.handle('workerChanges:targets', (event, boardId) => {
+  if (!isBoardFrame(event) || workspaceStore.get().activeBoardId !== boardId) return { error: t('workerChanges.scope') };
+  return { targets: reviewTargets(boardId).map(({ id, source }) => ({ id, source })) };
+});
+for (const action of ['review', 'diff', 'apply', 'undoStatus', 'undo', 'redo', 'previewReplay', 'updateReplayPreview', 'refreshReplayPreview',
+  'updateReplayHunks', 'updateReplayLines', 'replayDiff', 'replayConflicts', 'resolveReplayConflict', 'resolveReplayConflictBatch',
+  'replayInline', 'updateReplayInline', 'updateReplayInlineBatch', 'confirmReplay']) {
+  ipcMain.handle('workerChanges:' + action, async (event, boardId, targetId, snapshot, selection) => {
+    if (!isBoardFrame(event)) return { error: t('workerChanges.scope') };
+    try {
+      const project = resolveReviewTarget(boardId, targetId);
+      if (['apply', 'refreshReplayPreview', 'resolveReplayConflict', 'resolveReplayConflictBatch'].includes(action)) {
+        return await workerChanges[action](project, snapshot, selection, () => resolveReviewTarget(boardId, targetId));
+      }
+      const result = await workerChanges[action](project, snapshot, selection);
+      if (['replayDiff', 'replayInline', 'replayConflicts'].includes(action)) resolveReviewTarget(boardId, targetId);
+      return result;
+    } catch (error) {
+      const fallback = {
+        undo: 'workerChanges.undoFailed', redo: 'workerChanges.redoFailed', undoStatus: 'workerChanges.historyFailed',
+        previewReplay: 'workerChanges.historyPreviewFailed', updateReplayPreview: 'workerChanges.historyPreviewFailed',
+        refreshReplayPreview: 'workerChanges.historyPreviewFailed',
+        updateReplayHunks: 'workerChanges.historyPreviewFailed',
+        updateReplayLines: 'workerChanges.historyPreviewFailed',
+        updateReplayInline: 'workerChanges.historyPreviewFailed',
+        updateReplayInlineBatch: 'workerChanges.historyPreviewFailed',
+        confirmReplay: 'workerChanges.historyReplayFailed',
+        replayDiff: 'workerChanges.historyDiffFailed',
+        replayConflicts: 'workerChanges.historyConflictUnavailable',
+        resolveReplayConflict: 'workerChanges.historyPreviewFailed',
+        resolveReplayConflictBatch: 'workerChanges.historyPreviewFailed',
+        replayInline: 'workerChanges.historyDiffFailed',
+      }[action] ?? 'workerChanges.failed';
+      return { error: t(error.reviewKey ?? fallback), ...(error.file && { file: error.file }),
+        ...(error.reviewKey === 'workerChanges.historyPreviewStale' && { stale: true }) };
+    }
+  });
+}
+
 function stopSubagent(id) {
   try { ptyManager.kill(id); }
   catch (error) { console.warn('Subagent terminal cleanup failed:', error.code); }
@@ -277,6 +378,7 @@ function stopSubagent(id) {
 }
 
 function removeSubagentSettings(id) {
+  if (sandboxCases.delete(id)) hookServer.invalidate(id);
   try { claudeHooks.removeSettings(id); }
   catch (error) { console.warn('Subagent hook cleanup failed:', error.code); }
   antigravityHooks.remove(id);
@@ -289,14 +391,19 @@ const subagents = createSubagents({
     return agentId && info && { agentId, agent: configuredAgent(agentId), cwd: info.cwd, model: caseModels.get(id) };
   },
   agent: configuredAgent,
-  launch: ({ id, cwd }, agent, model) => {
+  launch: async ({ id, cwd, parentId }, agent, model) => {
     const settings = settingsStore.load();
     const shell = settings.general.shell;
-    const antigravityLaunch = agent.hooks === 'antigravity' ? antigravityHooks.prepare(id, {}, shell) : null;
-    const command = buildCommand(id, agent, false, model, {}, antigravityLaunch);
-    if (agent.hooks === 'claude' && settings.general.trustFolders) claudeTrust.trustFolder(cwd);
+    const cancelled = () => !subagents.canLaunch(id);
+    const preparation = prepareWorker({ id, cwd, boardId: caseBoards.get(parentId), owner: parentId, agent, model, servers: {}, cancelled });
+    const sandbox = preparation ? await preparation : null;
+    if (cancelled()) { sandbox?.close(); return; }
+    const antigravityLaunch = !sandbox && agent.hooks === 'antigravity' ? antigravityHooks.prepare(id, {}, shell) : null;
+    const command = sandbox ? null : buildCommand(id, agent, false, model, {}, antigravityLaunch);
+    if (!sandbox && agent.hooks === 'claude' && settings.general.trustFolders) claudeTrust.trustFolder(cwd);
+    if (sandbox) sandboxCases.add(id);
     ptyManager.create({
-      id, cwd, shell, command, exitOnCommand: true,
+      id, cwd, shell, command, sandbox, exitOnCommand: true,
       env: antigravityLaunch?.env ?? (agent.hooks === 'codex' ? codexProfile.env(id) : null),
     }, (id, data, offset) => {
       send(`pty:data:${id}`, data, offset);
@@ -331,25 +438,62 @@ function trackSession(id, payload) {
   else if (payload.hook_event_name === 'SessionStart' && ['startup', 'clear'].includes(payload.source)) workspaceStore.setSession(id, null);
 }
 
+function bigBrainContext(id, ownerId = id) {
+  const boardId = caseBoards.get(ownerId);
+  const state = noteFiles.readBigBrain(boardId);
+  if (!state) return {};
+  if (state.error) return { reason: t('team.bigBrainBlocked') };
+  const { noteId } = noteFiles.bigBrain(boardId);
+  try { workerSandbox.sync(noteId, state); }
+  catch { return { reason: t('team.bigBrainBlocked') }; }
+  const canWrite = canWriteBigBrain(id, noteId);
+  return { context: t('team.bigBrainContext', {
+    access: t(canWrite ? 'team.bigBrainWrite' : 'team.bigBrainReadOnly'),
+    document: state.text,
+  }) };
+}
+
+function hookContext(event, antigravity, context, reason) {
+  if (reason) {
+    return antigravity ? { terminationBehavior: 'terminate', injectSteps: [{ errorMessage: { userMessage: reason } }] }
+      : { decision: 'block', reason };
+  }
+  if (!context) return {};
+  return antigravity ? { injectSteps: [{ systemMessage: { systemMessage: context } }] }
+    : { hookSpecificOutput: { hookEventName: event, additionalContext: context } };
+}
+
 // Événements des hooks de Claude Code et Codex : statut de la case, et transmission par ses liens quand il a
 // fini (Transmission automatique, ou réponse attendue par un agent qui lui a délégué un message).
 // Début de session : la réponse au hook dit à l'agent qu'il tourne dans Orchestra et lui donne son rôle
 // (même format pour Claude Code et Codex). Ce contexte n'est pas affiché dans le terminal.
 function onHook(id, payload) {
+  // A sandbox hook can report session output, but cannot name a host file for Orchestra to read.
+  if (sandboxCases.has(id)) payload = { ...payload, transcript_path: null, transcriptPath: null };
   if (isSubagent(id)) {
-    const hook = subagents.kind(id) === 'antigravity' ? antigravityHooks.normalize(payload) : payload;
-    if (hook) subagents.onHook(id, hook);
-    return {};
+    const isAntigravity = subagents.kind(id) === 'antigravity';
+    const hook = isAntigravity ? antigravityHooks.normalize(payload) : payload;
+    if (!hook) return {};
+    const event = hook.hook_event_name;
+    const owner = subagents.parentId(id);
+    const { context, reason } = owner && event === 'UserPromptSubmit' ? bigBrainContext(id, owner) : {};
+    if (reason) subagents.blockPrompt(id, reason);
+    else subagents.onHook(id, hook);
+    return hookContext(event, isAntigravity, context, reason);
   }
-  const isAntigravity = caseAgents.get(id) === 'antigravity';
+  if (!agentStatus.info(id)) return {};
+  const isAntigravity = agentStatus.kind(id) === 'antigravity';
   if (isAntigravity) {
     payload = antigravityHooks.normalize(payload);
     if (!payload) return {};
   }
+  const event = payload.hook_event_name;
+  const governance = event === 'UserPromptSubmit' ? bigBrainContext(id) : {};
+  if (governance.reason) return hookContext(event, isAntigravity, null, governance.reason);
   const turnOwner = linkRelay.onHook(id, payload);
   taskSequences?.onHook(id, payload);
   diagnostics.onHook(id, payload.hook_event_name);
-  try { trackSession(id, payload); }
+  try { if (!sandboxCases.has(id)) trackSession(id, payload); }
   catch (error) {
     console.error('Session save failed:', error.message);
     send('workspace:saveError');
@@ -364,15 +508,15 @@ function onHook(id, payload) {
     linkRelay.onStop(id, payload);
   }
   agentStatus.onHook(id, payload);
-  if (payload.hook_event_name === 'SessionStart' || (isAntigravity && payload.hook_event_name === 'UserPromptSubmit' && !roleState.get(id).known)) {
-    const parts = [t('orchestra.context')];
+  const parts = [];
+  if (event === 'SessionStart' || (isAntigravity && event === 'UserPromptSubmit' && !roleState.get(id).known)) {
     if (!agentStatus.info(id)) return {};
+    parts.push(t('orchestra.context'));
     const role = roleState.start(id);
     if (role) parts.push(t('role.context', { role }));
-    const context = parts.join('\n\n');
-    if (isAntigravity) return { injectSteps: [{ systemMessage: { systemMessage: context } }] };
-    return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context } };
   }
+  if (governance.context) parts.push(governance.context);
+  return hookContext(event, isAntigravity, parts.join('\n\n'));
 }
 
 // Nom d'une case choisi dans l'interface (double-clic sur son titre).
@@ -410,63 +554,97 @@ function buildCommand(id, agent, resume, model, mcpServers, antigravityLaunch) {
 // L'interface envoie seulement l'id de l'agent : la commande à lancer vient des paramètres.
 // Renvoie { buffer, status } : buffer = dernières sorties si le terminal tournait déjà (case d'un
 // autre tableau qu'on rouvre), status = statut actuel de la case.
-ipcMain.handle('pty:create', (_e, { id, boardId, agentId, cwd, label, cols, rows, resume, model }) => {
+ipcMain.handle('pty:create', (event, args) => {
+  if (!isBoardFrame(event) || !validId(args?.id) || isSubagent(args.id)) return null;
+  const { id } = args;
+  if (startingCards.has(id)) return startingCards.get(id).promise;
+  const attempt = {};
+  startingCards.set(id, attempt);
+  attempt.promise = launchCard(args, () => startingCards.get(id) !== attempt).finally(() => {
+    if (startingCards.get(id) === attempt) startingCards.delete(id);
+  });
+  return attempt.promise;
+});
+
+async function launchCard({ id, boardId, agentId, cwd, label, cols, rows, resume, model }, cancelled) {
   const settings = settingsStore.load();
   const agent = settings.agents.find((a) => a.id === agentId);
-  if (!validId(id) || isSubagent(id) || !agent) return null;
+  if (!agent) return null;
 
   const existing = agentStatus.info(id);
   const mcpServers = existing || !agent.hooks ? {} : mcpCatalog().resolve(caseBoards.get(id) ?? boardId, id);
   if (!existing && resume && agent.hooks && !canResume(workspaceStore.getSession(id), agentId, cwd)) {
     return { error: t('session.unavailable') };
   }
-  const antigravityLaunch = !existing && agent.hooks === 'antigravity' ? antigravityHooks.prepare(id, mcpServers, settings.general.shell) : null;
-  const command = existing ? null : buildCommand(id, agent, resume, model, mcpServers, antigravityLaunch);
+  let sandbox;
+  if (!existing) {
+    try {
+      const preparation = prepareWorker({ id, boardId: caseBoards.get(id) ?? boardId, cwd, agent, model, servers: mcpServers, cancelled });
+      sandbox = preparation ? await preparation : null;
+    }
+    catch (error) { return { error: t(error.message.startsWith('workerSandbox.') ? error.message : 'workerSandbox.launch') }; }
+    if (cancelled()) { sandbox?.close(); return null; }
+    if (sandbox) sandboxCases.add(id);
+  }
+  const antigravityLaunch = !sandbox && !existing && agent.hooks === 'antigravity' ? antigravityHooks.prepare(id, mcpServers, settings.general.shell) : null;
+  const command = existing || sandbox ? null : buildCommand(id, agent, resume, model, mcpServers, antigravityLaunch);
   if (!existing) {
     if (!resume) workspaceStore.setSession(id, null);
     caseAgents.set(id, agentId);
     caseModels.set(id, model);
   }
-  if (!existing && agent.hooks === 'claude' && settings.general.trustFolders) claudeTrust.trustFolder(cwd);
+  if (!sandbox && !existing && agent.hooks === 'claude' && settings.general.trustFolders) claudeTrust.trustFolder(cwd);
   if (!existing) {
     diagnostics.onLaunch(id);
     agentStatus.register(id, agent.hooks ? 'hooks' : 'activity', { name: cleanName(label) ?? agent.name, cwd, notify: Boolean(agent.command), isShell: !agent.command, kind: agent.hooks || null });
     send('agent:status', id, agentStatus.info(id)); // la barre des agents actifs le voit tout de suite
   }
-  const result = ptyManager.create(
-    {
-      id,
-      command,
-      shell: settings.general.shell,
-      cwd,
-      env: antigravityLaunch?.env ?? (agent.hooks === 'codex' ? codexProfile.env(id) : null),
-      cols,
-      rows,
-    },
-    (id, data, offset) => {
-      agentStatus.onOutput(id, data);
-      terminalLink.onOutput(id, data);
-      send(`pty:data:${id}`, data, offset);
-    },
-    (id, code) => {
-      subagents.closeParent(id);
-      agentStatus.unregister(id);
-      caseAgents.delete(id);
-      caseModels.delete(id);
-      diagnostics.forget(id);
-      roleState.clear(id);
-      blockers.onStatus(id, null);
-      blockers.onExit(id, code);
-      claudeHooks.removeSettings(id);
-      antigravityHooks.remove(id);
-      send('agent:status', id, null);
-      send(`pty:exit:${id}`, code);
-      relayStatus(id, null);
-    },
-  );
-  blockers.onStatus(id, agentStatus.info(id));
-  return { ...result, status: agentStatus.info(id) };
-});
+  const options = {
+    id,
+    command,
+    shell: settings.general.shell,
+    cwd,
+    env: antigravityLaunch?.env ?? (agent.hooks === 'codex' ? codexProfile.env(id) : null),
+    cols,
+    rows,
+    sandbox,
+  };
+  const onData = (id, data, offset) => {
+    agentStatus.onOutput(id, data);
+    terminalLink.onOutput(id, data);
+    send(`pty:data:${id}`, data, offset);
+  };
+  const onExit = (id, code) => {
+    subagents.closeParent(id);
+    agentStatus.unregister(id);
+    caseAgents.delete(id);
+    caseModels.delete(id);
+    if (sandboxCases.delete(id)) hookServer.invalidate(id);
+    diagnostics.forget(id);
+    roleState.clear(id);
+    blockers.onStatus(id, null);
+    blockers.onExit(id, code);
+    claudeHooks.removeSettings(id);
+    antigravityHooks.remove(id);
+    send('agent:status', id, null);
+    send(`pty:exit:${id}`, code);
+    relayStatus(id, null);
+  };
+  try {
+    const result = ptyManager.create(options, onData, onExit);
+    blockers.onStatus(id, agentStatus.info(id));
+    return { ...result, status: agentStatus.info(id) };
+  } catch (error) {
+    if (!sandbox) throw error;
+    if (sandboxCases.delete(id)) hookServer.invalidate(id);
+    caseAgents.delete(id);
+    caseModels.delete(id);
+    agentStatus.unregister(id);
+    diagnostics.forget(id);
+    send('agent:status', id, null);
+    return { error: t('workerSandbox.launch') };
+  }
+}
 ipcMain.on('pty:write', (_e, id, data) => {
   if (typeof data !== 'string') return;
   if (isSubagent(id)) return subagents.write(id, data);
@@ -492,11 +670,13 @@ ipcMain.on('pty:rename', (_e, id, name) => {
 });
 ipcMain.on('pty:kill', (_e, id) => {
   if (isSubagent(id)) return;
+  startingCards.delete(id);
   subagents.closeParent(id);
   ptyManager.kill(id);
   agentStatus.unregister(id);
   caseAgents.delete(id);
   caseModels.delete(id);
+  if (sandboxCases.delete(id)) hookServer.invalidate(id);
   diagnostics.forget(id);
   roleState.clear(id);
   blockers.onStatus(id, null);
@@ -593,6 +773,7 @@ workspaceStore.register((workspace) => {
   noteLink.setWorkspace(workspace);
   noteFiles.setWorkspace(workspace);
 }, () => {
+  startingCards.clear();
   subagents.closeAll();
   for (const id of ptyManager.ids()) {
     ptyManager.kill(id);
@@ -607,16 +788,18 @@ workspaceStore.register((workspace) => {
   for (const id of caseAgents.keys()) diagnostics.forget(id);
   caseAgents.clear();
   caseModels.clear();
-}, (boardId, cards, preset, backlog, persist, event) => {
+  for (const id of sandboxCases) hookServer.invalidate(id);
+  sandboxCases.clear();
+}, (boardId, cards, preset, backlog, persist, event, bigBrain) => {
   if (!isBoardFrame(event)) throw new Error('Invalid board frame');
-  return mcpCatalog().applyPreset(boardId, cards, preset, () => {
-    if (!backlog) return persist();
-    return noteFiles.applyProjectBacklog(backlog.noteId, backlog.cwd, backlog.text, persist);
-  });
+  const applyBigBrain = () => bigBrain ? noteFiles.applyBigBrain(boardId, bigBrain, persist) : persist();
+  return mcpCatalog().applyPreset(boardId, cards, preset, () => backlog
+    ? noteFiles.applyProjectBacklog(backlog.noteId, backlog.cwd, backlog.text, applyBigBrain)
+    : applyBigBrain());
 });
 gitHandlers.register(workspaceStore.get);
 taskService = tasksHandlers.register(workspaceStore.get, send, linkRelay);
-teamTemplates.register(noteFiles.get);
+teamTemplates.register(noteFiles.get, noteFiles.bigBrain);
 usage.register();
 updates.register(() => win);
 activityLog.register(() => win);
@@ -666,12 +849,14 @@ app.whenReady().then(async () => {
 
 // Pas de processus orphelins : on tue tous les agents en quittant.
 app.on('before-quit', () => {
+  startingCards.clear();
   visualTests.dispose();
   noteFiles.dispose();
   taskSequences?.dispose();
   linkRelay.dispose();
   subagents.closeAll();
   ptyManager.killAll();
+  workerSandbox.dispose();
   antigravityHooks.clearAll();
   usage.stop();
 });

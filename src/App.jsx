@@ -44,6 +44,7 @@ import BlockersInbox from './components/BlockersInbox.jsx';
 import TopBar from './components/TopBar.jsx';
 import TileSearch from './components/TileSearch.jsx';
 import TaskSequencesDialog from './components/TaskSequencesDialog.jsx';
+import WorkerChangesDialog from './components/WorkerChangesDialog.jsx';
 import LayoutToolbar from './components/LayoutToolbar.jsx';
 import GroupsLayer from './components/GroupsLayer.jsx';
 import FormationPreview from './components/FormationPreview.jsx';
@@ -111,6 +112,7 @@ function Workspace({ saved }) {
   const [inboxOpen, setInboxOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [workerReviewBoard, setWorkerReviewBoard] = useState(null);
   const [blockers, setBlockers] = useState([]);
   useEffect(() => {
     let changed = false;
@@ -264,6 +266,9 @@ function Workspace({ saved }) {
         onOpenInbox={() => setInboxOpen(true)}
         onOpenSearch={() => setSearchOpen(true)}
         onOpenTasks={() => { boards.flushSave().then(() => setTasksOpen(true)).catch(() => setTasksOpen(true)); }}
+        onOpenWorkerChanges={content[activeId]?.nodes.some((node) => node.type === 'note' && node.data.readOnlyForWorkers)
+          ? () => { boards.flushSave().then(() => setWorkerReviewBoard(activeId)).catch(() => setWorkerReviewBoard(activeId)); }
+          : undefined}
         blockerCount={blockers.filter((entry) => !entry.resolved).length}
       />
       <PermissionNotch running={running} content={content} onFocus={focusAgent} />
@@ -305,6 +310,7 @@ function Workspace({ saved }) {
         />
       )}
       {tasksOpen && <TaskSequencesDialog boards={boards.boards} content={content} onFocus={(id) => { setTasksOpen(false); focusAgent(id); }} onClose={() => setTasksOpen(false)} />}
+      {workerReviewBoard === activeId && <WorkerChangesDialog key={activeId} boardId={activeId} onClose={() => setWorkerReviewBoard(null)} />}
       {teamsOpen && <TeamTemplates boardId={activeId} board={content[activeId]} getBoard={() => content[activeId]} boardName={boards.boards.find((b) => b.id === activeId)?.name || ''} onCreate={boards.addBoard} onClose={() => setTeamsOpen(false)} />}
       {searchOpen && (
         <TileSearch boards={boards.boards} content={content} activeId={activeId} onFocus={focusAgent} onClose={() => setSearchOpen(false)} />
@@ -613,7 +619,7 @@ function Board({ boardId, initial, onChange, focusRequest, onFocusDone, overlays
   // Copie décalée : une case copiée lance un nouvel agent (même agent, dossier, branche, rôle et modèle).
   const duplicate = (node) =>
     setNodes((nds) => {
-      const { label, restored, autoEdit, lastResult, ...data } = node.data;
+      const { label, restored, autoEdit, lastResult, readOnlyForWorkers, ...data } = node.data;
       if (node.type === 'terminal') data.label = numberedName(agentById(node.data.agentId).name, nds);
       if (node.type === 'note') data.label = numberedName(t('note.defaultName'), nds);
       return nds

@@ -26,8 +26,9 @@ function parseMarkdown(bytes) {
   let source;
   try { source = utf8.decode(bytes); } catch { throw fileError('note.fileEncoding'); }
   if (source.includes('\0')) throw fileError('note.fileEncoding');
-  let offset = source.startsWith('\uFEFF') ? 3 : 0;
-  if (offset) source = source.slice(1);
+  const bom = source.startsWith('\uFEFF');
+  let offset = bom ? 3 : 0;
+  if (bom) source = source.slice(1);
   let fence = '';
   const tasks = [];
   const lines = source.split(/(\r\n|\n|\r)/u);
@@ -45,7 +46,7 @@ function parseMarkdown(bytes) {
     offset += Buffer.byteLength(line + (lines[i + 1] ?? ''));
   }
   const revision = createHash('sha256').update(bytes).digest('hex');
-  return { text: source.replace(/\r\n?/g, '\n'), tasks, revision };
+  return { text: source.replace(/\r\n?/g, '\n'), tasks, revision, bom, eol: source.match(/\r\n|\r|\n/)?.[0] ?? '\n' };
 }
 
 function sameFile(before, after) {
@@ -77,13 +78,13 @@ function withMarkdown(file, writable, useFile) {
   }
 }
 
-function projectBacklog(cwd, text) {
+function projectMarkdown(cwd, text, name, fallback) {
   if (typeof cwd !== 'string' || !path.isAbsolute(cwd) || typeof text !== 'string') throw fileError('note.fileInvalid');
   const root = fs.realpathSync.native(cwd);
-  const backlog = path.join(root, 'BACKLOG.md');
-  if (!isMarkdownPath(backlog) || !fs.lstatSync(root).isDirectory()) throw fileError('note.fileInvalid');
+  const target = path.join(root, name);
+  if (!isMarkdownPath(target) || !fs.lstatSync(root).isDirectory()) throw fileError('note.fileInvalid');
 
-  for (const file of [backlog, path.join(root, 'TODO.md')]) {
+  for (const file of fallback ? [target, path.join(root, fallback)] : [target]) {
     try {
       fs.lstatSync(file); // A symlink or a directory also occupies the intended path.
       return file;
@@ -97,23 +98,30 @@ function projectBacklog(cwd, text) {
   parseMarkdown(bytes);
   if (!samePath(root, fs.realpathSync.native(root))) throw fileError('note.fileUnavailable');
   try {
-    fs.writeFileSync(backlog, bytes, { flag: 'wx', mode: 0o600 });
+    fs.writeFileSync(target, bytes, { flag: 'wx', mode: 0o600 });
   } catch (error) {
     if (error.code !== 'EEXIST') throw error;
   }
-  return backlog;
+  return target;
 }
 
 function createNoteFiles(directory, emit) {
   const registry = path.join(directory, 'note-files.json');
   const watching = new Map();
+  let governance = new Map();
   let bindings;
 
   function loadBindings() {
     if (bindings) return bindings;
     try {
       const entries = JSON.parse(fs.readFileSync(registry, 'utf8'));
-      bindings = new Map(Object.entries(entries).filter(([id, file]) => validId(id) && isMarkdownPath(file)));
+      bindings = new Map(Object.entries(entries).flatMap(([id, binding]) => {
+        if (!validId(id)) return [];
+        if (isMarkdownPath(binding)) return [[id, { file: binding }]];
+        if (isMarkdownPath(binding?.file) && path.basename(binding.file) === 'AGENTS.md' &&
+            validId(binding.boardId) && validId(binding.architectId)) return [[id, binding]];
+        return [];
+      }));
     } catch (error) {
       if (error.code !== 'ENOENT') console.error('Could not load Markdown note links:', error.message);
       bindings = new Map();
@@ -121,14 +129,15 @@ function createNoteFiles(directory, emit) {
     return bindings;
   }
 
-  function saveBinding(id, file) {
+  function saveBinding(id, binding) {
     const next = new Map(loadBindings());
-    if (file) next.set(id, file);
+    if (binding) next.set(id, binding);
     else next.delete(id);
     const temp = `${registry}.${randomUUID()}.tmp`;
     fs.mkdirSync(directory, { recursive: true });
     try {
-      fs.writeFileSync(temp, JSON.stringify(Object.fromEntries(next)), { flag: 'wx', mode: 0o600 });
+      const entries = [...next].map(([noteId, entry]) => [noteId, entry.boardId ? entry : entry.file]);
+      fs.writeFileSync(temp, JSON.stringify(Object.fromEntries(entries)), { flag: 'wx', mode: 0o600 });
       fs.renameSync(temp, registry);
       bindings = next;
     } finally {
@@ -139,8 +148,8 @@ function createNoteFiles(directory, emit) {
   function read(file) {
     const info = { file, name: path.basename(file) };
     try {
-      const snapshot = withMarkdown(file, false, (value) => value);
-      return { ...info, ...snapshot, tasks: snapshot.tasks.map(({ line, marker, label }) => ({ line, marker, label })) };
+      const { text, revision, tasks } = withMarkdown(file, false, (value) => value);
+      return { ...info, text, revision, tasks: tasks.map(({ line, marker, label }) => ({ line, marker, label })) };
     } catch (error) {
       return { ...info, error: error.noteKey ?? 'note.fileUnavailable' };
     }
@@ -196,7 +205,12 @@ function createNoteFiles(directory, emit) {
   function setWorkspace(workspace) {
     const ids = new Set(workspace.boards.flatMap((board) => board.nodes.filter((node) => node.type === 'note').map((node) => node.id)));
     for (const id of watching.keys()) if (!ids.has(id)) unwatch(id);
-    for (const [id, file] of loadBindings()) if (ids.has(id) && !watching.has(id)) watch(id, file);
+    const boardIds = new Set(workspace.boards.map((board) => board.id));
+    governance = new Map();
+    for (const [id, binding] of loadBindings()) {
+      if (ids.has(id) && !watching.has(id)) watch(id, binding.file);
+      if (boardIds.has(binding.boardId) && binding.boardId) governance.set(binding.boardId, { ...binding, noteId: id });
+    }
   }
 
   function get(id) {
@@ -204,13 +218,27 @@ function createNoteFiles(directory, emit) {
     return watching.get(id)?.state ?? null;
   }
 
+  function getFresh(id) {
+    const entry = watching.get(id);
+    return entry ? refresh(id, entry) : null;
+  }
+
+  const bigBrain = (boardId) => governance.get(boardId);
+  const readBigBrain = (boardId) => {
+    const binding = bigBrain(boardId);
+    return binding && read(binding.file);
+  };
+  const isBigBrain = (id) => Boolean(loadBindings().get(id)?.boardId);
+  const isProtectedFile = (file) => [...loadBindings().values()].some((binding) => binding.boardId && samePath(binding.file, file));
+
   function link(id, selected) {
+    if (isBigBrain(id)) throw fileError('note.bigBrainReadOnly');
     if (!validId(id) || !isMarkdownPath(selected)) throw fileError('note.fileInvalid');
     const file = fs.realpathSync.native(selected);
     if (!isMarkdownPath(file)) throw fileError('note.fileInvalid');
     const initial = read(file);
     if (initial.error) throw fileError(initial.error);
-    saveBinding(id, file);
+    saveBinding(id, { file });
     unwatch(id);
     const state = watch(id, file);
     emit(id, state);
@@ -218,6 +246,7 @@ function createNoteFiles(directory, emit) {
   }
 
   function unlink(id) {
+    if (isBigBrain(id)) throw fileError('note.bigBrainReadOnly');
     if (!validId(id) || !loadBindings().has(id)) return null;
     saveBinding(id, null);
     unwatch(id);
@@ -225,30 +254,66 @@ function createNoteFiles(directory, emit) {
     return null;
   }
 
-  function applyProjectBacklog(id, cwd, text, persist) {
-    if (!validId(id) || loadBindings().has(id)) throw fileError('note.fileInvalid');
-    let file;
+  function applyProjectBinding(id, cwd, text, persist, access) {
     try {
-      file = projectBacklog(cwd, text);
+      if (!validId(id) || loadBindings().has(id)) throw fileError('note.fileInvalid');
+      const file = access ? projectMarkdown(cwd, text, 'AGENTS.md') : projectMarkdown(cwd, text, 'BACKLOG.md', 'TODO.md');
       const initial = read(file);
       if (initial.error) throw fileError(initial.error);
-      saveBinding(id, file);
+      saveBinding(id, { file, ...access });
     } catch (error) {
-      throw fileError(error.noteKey ?? 'note.fileUnavailable');
+      throw Object.assign(fileError(error.noteKey ?? 'note.fileUnavailable'), { bigBrain: Boolean(access) });
     }
     try {
       return persist();
     } catch (error) {
       unwatch(id);
       saveBinding(id, null);
+      if (access && bigBrain(access.boardId)?.noteId === id) governance.delete(access.boardId);
       // Leave a newly created project file in place. An editor may already be using it.
       throw error;
     }
   }
 
+  const applyProjectBacklog = (id, cwd, text, persist) => applyProjectBinding(id, cwd, text, persist);
+  const applyBigBrain = (boardId, { noteId, architectId, cwd, text }, persist) =>
+    applyProjectBinding(noteId, cwd, text, persist, { boardId, architectId });
+
+  function refreshBindings(file) {
+    for (const [noteId, binding] of watching) if (samePath(file, binding.file)) refresh(noteId, binding);
+  }
+
+  function writeBigBrain(id, text, revision) {
+    const entry = watching.get(id);
+    if (!entry || !isBigBrain(id)) throw fileError('note.fileUnavailable');
+    if (typeof text !== 'string') throw fileError('note.fileInvalid');
+    const temp = path.join(path.dirname(entry.file), `.orchestra-${randomUUID()}.tmp`);
+    try {
+      const opened = withMarkdown(entry.file, true, (snapshot, _fd, stat) => {
+        if (snapshot.revision !== revision) throw fileError('note.fileConflict');
+        const content = text.replace(/\r\n?|\n/g, snapshot.eol).replace(/^\uFEFF/, '');
+        const bytes = Buffer.from((snapshot.bom ? '\uFEFF' : '') + content, 'utf8');
+        if (bytes.length > MAX_FILE_BYTES) throw fileError('note.fileTooLarge');
+        parseMarkdown(bytes);
+        fs.writeFileSync(temp, bytes, { flag: 'wx', mode: Number(stat.mode & 0o777n) });
+        return stat;
+      });
+      // Windows cannot replace the destination while it is open.
+      if (!samePath(entry.file, fs.realpathSync.native(entry.file)) || !sameFile(opened, fs.lstatSync(entry.file, { bigint: true }))) {
+        throw fileError('note.fileConflict');
+      }
+      fs.renameSync(temp, entry.file);
+    } finally {
+      fs.rmSync(temp, { force: true });
+      refreshBindings(entry.file);
+    }
+    return entry.state;
+  }
+
   function toggle(id, line, revision) {
     const entry = watching.get(id);
     if (!entry || !Number.isSafeInteger(line) || typeof revision !== 'string') throw fileError('note.fileUnavailable');
+    if (isProtectedFile(entry.file)) throw fileError('note.bigBrainReadOnly');
     try {
       withMarkdown(entry.file, true, (snapshot, fd, opened) => {
         const task = snapshot.tasks.find((item) => item.line === line);
@@ -259,7 +324,7 @@ function createNoteFiles(directory, emit) {
         if (fs.writeSync(fd, marker, 0, marker.length, task.offset) !== marker.length) throw fileError('note.fileUnavailable');
       });
     } finally {
-      for (const [noteId, binding] of watching) if (samePath(entry.file, binding.file)) refresh(noteId, binding);
+      refreshBindings(entry.file);
     }
     return entry.state;
   }
@@ -268,7 +333,7 @@ function createNoteFiles(directory, emit) {
     for (const id of watching.keys()) unwatch(id);
   }
 
-  return { setWorkspace, get, link, unlink, applyProjectBacklog, toggle, dispose };
+  return { setWorkspace, get, getFresh, bigBrain, readBigBrain, isBigBrain, link, unlink, applyProjectBacklog, applyBigBrain, writeBigBrain, toggle, dispose };
 }
 
 function registerNoteFiles(ipcMain, dialog, window, service) {
@@ -281,6 +346,7 @@ function registerNoteFiles(ipcMain, dialog, window, service) {
   const action = (fn) => (...args) => ({ state: fn(...args) });
   handle('get', action(service.get));
   handle('toggle', action(service.toggle));
+  handle('writeBigBrain', action(service.writeBigBrain));
   handle('unlink', action(service.unlink));
   handle('link', async (id) => {
     const { canceled, filePaths } = await dialog.showOpenDialog(window(), {

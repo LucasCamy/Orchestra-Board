@@ -17,13 +17,16 @@ const dir = () => path.join(app.getPath('userData'), 'hooks');
 const fileFor = (id) => path.join(dir(), `${id}.json`);
 const mcpFileFor = (id) => path.join(dir(), `${id}.mcp.json`);
 
-function writeSettings(id) {
-  const command = `curl -s -m 3 -X POST -H "Content-Type: application/json" --data-binary @- "${hookUrl(id)}"`;
+function settingsFor(url) {
+  const command = `curl -s -m 3 -X POST -H "Content-Type: application/json" --data-binary @- "${url}"`;
   const hook = { hooks: [{ type: 'command', command, timeout: 5 }] };
   const hooks = Object.fromEntries(EVENTS.map((event) => [event, [event === 'PostToolUse' ? { matcher: '*', ...hook } : hook]]));
+  return { hooks, permissions: { allow: ORCHESTRA_TOOLS } };
+}
 
+function writeSettings(id) {
   fs.mkdirSync(dir(), { recursive: true });
-  fs.writeFileSync(fileFor(id), JSON.stringify({ hooks, permissions: { allow: ORCHESTRA_TOOLS } }, null, 2));
+  fs.writeFileSync(fileFor(id), JSON.stringify(settingsFor(hookUrl(id)), null, 2));
   return fileFor(id);
 }
 
@@ -53,4 +56,4 @@ function clearAll() {
   fs.rmSync(dir(), { recursive: true, force: true });
 }
 
-module.exports = { writeSettings, writeMcpConfig, removeSettings, clearAll, mcpServerPath };
+module.exports = { settingsFor, writeSettings, writeMcpConfig, removeSettings, clearAll, mcpServerPath };

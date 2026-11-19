@@ -464,6 +464,40 @@ Open **Team templates**, choose a project folder, and pick a preset.
 - **Project maintenance** includes a Linear lead, a developer, and QA with Chrome DevTools. The developer requests reviews directly from QA, and QA's reply carries the findings back.
 - **Enterprise squad** adds Antigravity as architect and splits development into backend and frontend cards with dedicated MSBuild and npm terminals. The architect reads the backlog and hands the design to the tech lead. Both developer cards can contact QA. Enable Antigravity in **Settings → Agents** to use `agy`, or pick a compatible agent for that card.
 
+#### Enterprise worker isolation
+
+Install Docker Desktop with Linux containers enabled and build the local worker image from the Orchestra source directory.
+
+```sh
+docker --context desktop-linux build -f build/enterprise-worker.Dockerfile -t orchestra-enterprise-worker:local build
+```
+
+Tech Lead, developers, QA, worker subagents and linked shell cards run inside Docker. The Architect card runs Antigravity on the host. The user and that Architect can update the original `AGENTS.md`. The worker shell sees the host project under `/orchestra/source` as read-only and receives the current Big Brain at `/workspace/AGENTS.md` through a read-only mount. The agent card stays offline if Docker or the image is unavailable.
+
+All worker cards using the same board and project folder share a writable copy at `/workspace`. The copy is initialized on first launch and survives terminal restarts. On the Enterprise board, choose **Review worker changes**, open the diff for each file to transfer, and select **Apply selected changes**. The original project receives the selected changes as local edits. The review also finds changes already committed inside the worker copy. AGENTS.md, Git metadata, and filesystem links are excluded.
+
+For a conflict, open the file in the same dialog and choose the original version, the worker version, or edit a merged result for UTF-8 text. Select the resolution and apply it along with other reviewed files. Applying records the reviewed worker version and writes the chosen result to the original project when needed. A change to either version requires a fresh review.
+
+Open **Application history** in the same dialog to see up to 20 batches for the selected destination. **Undo latest batch** starts with the most recent applied batch. **Redo next batch** starts with the earliest undone batch. Each row also has its own actions. Shared files are processed in application order on redo and in reverse order on undo.
+
+To undo or redo several batches together, select their checkboxes and choose **Preview undo** or **Preview redo**. Use the file checkboxes to choose what to include. The board recalculates the plan and refreshes the open diff against the combined result of the selected batches for that file. Excluded files stay pending in their original batches. The preview also lists history-only changes and items that will be kept. If a file edit changes the preview before confirmation, open a new preview to continue.
+
+For an existing text file with a complete diff and matching permissions, use the checkboxes to select changed lines or entire hunks. Added and removed lines can be selected independently. Select both sides of a replacement to apply it as shown. The board refreshes the combined result before confirmation. When a partial operation spans several batches for that file, the history keeps the replayed and pending portions together in one batch entry. Open that entry's preview to continue in either direction.
+
+Open **Text** on a changed line to choose whole fragments or highlight a range and choose **Use highlighted text**. Use **Add highlighted text** to include more ranges in the same fragment. You can remove each range separately. In paired replacements, the shared text stays in place. The board recalculates the result for the chosen ranges while the rest stays available in history.
+
+Enable **Batch text selections** to stage ranges across fragments, lines, and files. Choose **Recalculate preview** to review all staged selections together before confirming. A recalculation accepts up to 200 changed lines. You can adjust the file scope while staging and keep selections on unchanged files that remain included. Recalculate or discard a file's pending text before changing its whole-line selections.
+
+If the preview becomes stale, use **Refresh preview** to review the same batches again. The board recovers compatible selections and defaults to keeping local text in each conflict. Open a file’s **Text conflicts** section to keep the local text, use the selected text, or enter a manual result and choose **Update diff**. Review the combined diff before confirming. A file with only conflicts becomes eligible when a resolution changes its contents. If the text cannot be aligned safely, the file is skipped. If the application history changed, select the batches again in **Application history**.
+
+Enable **Resolve conflicts in batch** to select individual conflicts across files, a file’s conflicts, or all available conflicts. To mix resolutions, choose **Keep local text**, **Use selected text**, or **Edit manually** for each conflict and then choose **Update diff** once. The two batch shortcuts apply the same choice to the whole selection. Review the combined diff before confirming the operation.
+
+Later edits are kept and listed after each operation. Skipped files stay available for another attempt, and independent files can still be processed in other batches. History is available after restarting Orchestra, even if the worker is offline. A new application clears pending redo actions and keeps earlier applied batches available to undo. The history excludes AGENTS.md.
+
+Review supports regular files up to 2 MB and applies up to 200 files or 20 MB at a time. For copies created before review tracking, the first review shows differences against the current original folder. It omits historical deletions because the initial worker contents are unknown.
+
+Sign in to the CLIs inside their isolated profiles, or provide the appropriate provider API key in the environment that launches Orchestra. Use the CLI's own resume command for sessions saved in its container profile. Use `ORCHESTRA_WORKER_IMAGE` to select a trusted local Linux image with your project's extra tools, such as the .NET SDK or Chromium. The image needs Node.js, Git, curl, util-linux, coreutils and the selected agent CLI. Use `host.docker.internal` to address a development service running on the host from a worker.
+
 Both presets link the project note to `BACKLOG.md` or fall back to `TODO.md`. If neither file exists, Orchestra creates a `BACKLOG.md` with the preset checklist. Use **Sync the project backlog** to control this when creating a board. The visual link lets QA read the linked runner’s latest status and diagnostics through the Orchestra MCP. Set an application URL when creating the board or configure it on the runner later. Linear authentication happens in the lead’s CLI.
 
 Use **Save this board** to keep your own setup. A preset saves layout, links, roles, notes, test definitions, and the MCP IDs selected at each level. A link to a project-root `BACKLOG.md` or `TODO.md` retains the instruction to bind a backlog in the next project. Register any referenced custom MCP server on this installation first. Set an application URL at creation to point saved tests to a new origin while keeping their paths. Agents start in the project folder with fresh conversations, and test cards start with an empty run history.

@@ -28,7 +28,8 @@ function setWorkspace(workspace) {
       const written = pending.get(node.id);
       const fresh = written && Date.now() - written.at < PENDING_FOR && written.text !== node.data.text;
       if (!fresh) pending.delete(node.id);
-      notes.set(node.id, { name: node.data.label || t('note.defaultName'), text: fresh ? written.text : node.data.text });
+      notes.set(node.id, { name: node.data.label || t('note.defaultName'), text: fresh ? written.text : node.data.text,
+        governed: node.data.readOnlyForWorkers === true });
     }
     for (const edge of board.edges) {
       if (edge.data.mode !== 'note' || edge.data.enabled === false || !notes.has(edge.target)) continue;
@@ -70,17 +71,31 @@ function readNote(caller, { name } = {}) {
   if (found.error) return found.error;
   const file = deps.file?.(found.link.target);
   if (file?.error) return result(t(file.error), true);
+  if (!file && (found.note.governed || deps.isBigBrain?.(found.link.target))) return result(t('note.fileUnavailable'), true);
   const text = file?.text ?? found.note.text;
+  if (file && deps.canWriteBigBrain?.(caller, found.link.target)) {
+    return result(JSON.stringify({ text, revision: file.revision }));
+  }
   return result(text.trim() ? text : `(${t('note.empty')})`);
 }
 
-function writeNote(caller, { name, text } = {}) {
+function writeNote(caller, { name, text, revision } = {}) {
   const found = findNote(caller, name);
   if (found.error) return found.error;
-  if (deps.file?.(found.link.target)) return result(t('note.fileWrite'), true);
+  const { link, note } = found;
+  if (note.governed || deps.isBigBrain?.(link.target)) {
+    if (!deps.canWriteBigBrain?.(caller, link.target)) return result(t('note.bigBrainReadOnly'), true);
+    if (typeof text !== 'string') return result(t('note.noText'), true);
+    try { deps.writeBigBrain(link.target, text, revision); }
+    catch (error) { return result(t(error.noteKey ?? 'note.fileUnavailable'), true); }
+    const message = t('note.written', { name: note.name });
+    deps.emit(link.id, { state: 'sent', to: link.target });
+    deps.log({ kind: 'note', linkId: link.id, from: caller, to: link.target, text: message });
+    return result(message);
+  }
+  if (deps.file?.(link.target)) return result(t('note.fileWrite'), true);
   if (typeof text !== 'string') return result(t('note.noText'), true);
   if (text.length > MAX_TEXT) return result(t('note.tooLong', { max: MAX_TEXT }), true);
-  const { link, note } = found;
   note.text = text;
   pending.set(link.target, { text, at: Date.now() });
   deps.write(link.target, text);

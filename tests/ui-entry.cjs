@@ -86,7 +86,7 @@ app.on('browser-window-created', (_event, win) => {
       }
       if (mode === 'team-presets') {
         await require('./ui-team-presets.cjs')({ evaluate, until, data, errors });
-        console.log('PASS UI team-presets: create and save a maintenance board, then reuse it in another project');
+        console.log('PASS UI team-presets: reuse a maintenance board and verify Big Brain governance and worker change review');
         app.quit();
         return;
       }
@@ -178,5 +178,30 @@ if (mode.startsWith('onboarding')) {
   const project = path.join(data, 'chosen-project');
   fs.mkdirSync(project, { recursive: true });
   electron.dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [project] });
+}
+if (mode === 'team-presets') {
+  const sandboxModule = require('../electron/workerSandbox.cjs');
+  const create = sandboxModule.createWorkerSandbox;
+  const { hashBytes, readFileState } = require('../electron/workerChangePaths.cjs');
+  sandboxModule.createWorkerSandbox = (...args) => {
+    const service = create(...args);
+    service.volumeExists = async () => true;
+    const proposed = new Map([
+      ['review-fixture.js', 'reviewed by the worker\n'],
+      ['conflict-fixture.js', 'worker conflict version\n'],
+      ['history-fixture.js', 'second batch\n'],
+      ['hunks-fixture.js', 'worker header\n' + 'shared context\n'.repeat(16) + 'worker footer\n'],
+      ...['replay-batch-a.js', 'replay-batch-b.js', 'replay-batch-c.js'].map((file) => [file, 'worker header\n' + 'shared context\n'.repeat(16) + 'worker footer\n']),
+    ].map(([name, text]) => {
+      const bytes = Buffer.from(text);
+      return [name, { hash: hashBytes(bytes), executable: false, content: bytes.toString('base64') }];
+    }));
+    service.workerFiles = async (target, action, paths) => {
+      if (action === 'initialize') return { legacy: false, entries: [...proposed.keys()].map((name) => [name, readFileState(target.source, name)]) };
+      if (action === 'inventory') return [...proposed];
+      return paths.map((file) => proposed.get(file) ?? null);
+    };
+    return service;
+  };
 }
 try { require('../electron/main.cjs'); } finally { Module._load = originalLoad; }

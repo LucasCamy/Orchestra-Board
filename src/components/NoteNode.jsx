@@ -1,5 +1,5 @@
 import { Handle, NodeResizer, Position, useReactFlow } from '@xyflow/react';
-import { Circle, CircleCheck, CircleDot, Link2Off, Paperclip } from 'lucide-react';
+import { Circle, CircleCheck, CircleDot, Link2Off, Paperclip, Pencil } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useBoard } from '../context/BoardContext.jsx';
 import useEditableText from '../hooks/useEditableText.js';
@@ -21,7 +21,7 @@ function NoteText({ text, tasks, onToggle, busy }) {
     const status = STATUS[task.marker];
     const Icon = STATUS_ICONS[status];
     const label = task.label || t('note.fileTask', { n: i + 1 });
-    if (fileTasks) {
+    if (fileTasks && onToggle) {
       return (
         <button
           className={`note-line note-status note-task nodrag ${status}`}
@@ -73,6 +73,7 @@ function useNoteFile(id, api) {
     try {
       const result = await api[action](id, ...args);
       setError(result.error ?? null);
+      return !result.error;
     } catch {
       setError('note.fileUnavailable');
     } finally {
@@ -80,7 +81,7 @@ function useNoteFile(id, api) {
     }
   };
 
-  return { file, error, busy, run };
+  return { file, error, busy, run, clearError: () => setError(null) };
 }
 
 // Post-it (PLAN.md §3.8) : déplaçable, redimensionnable quand il est choisi, double-clic pour écrire.
@@ -90,9 +91,25 @@ export default function NoteNode({ id, data, selected }) {
   const { linkSource, renameRequest, editRequest } = useBoard();
   const { updateNodeData } = useReactFlow();
   const api = window.notes;
-  const { file, error, busy, run } = useNoteFile(id, api);
-  const { editing, startEditing, inputProps } = useEditableText(id, data, { request: !file && editRequest?.id === id ? editRequest.at : null });
-  const editingText = !file && editing;
+  const { file, error, busy, run, clearError } = useNoteFile(id, api);
+  const bigBrain = data.readOnlyForWorkers === true;
+  const request = editRequest?.id === id ? editRequest.at : null;
+  const { editing, startEditing, inputProps } = useEditableText(id, data, { request: !bigBrain && !file ? request : null });
+  const [draft, setDraft] = useState(null);
+  const openDraft = () => {
+    if (!file?.revision || busy) return;
+    clearError();
+    setDraft((current) => current ?? { text: file.text, revision: file.revision });
+  };
+  useEffect(() => {
+    if (bigBrain && request) openDraft();
+  }, [bigBrain, request]);
+  const cancelDraft = () => { clearError(); setDraft(null); };
+  const saveDraft = async (event) => {
+    event.preventDefault();
+    if (!busy && await run('writeBigBrain', draft.text, draft.revision)) setDraft(null);
+  };
+  const editingText = bigBrain ? Boolean(draft) : !file && editing;
   const FileActionIcon = file ? Link2Off : Paperclip;
   const fileAction = t(file ? 'note.fileUnlink' : 'note.fileLink');
   const fileError = error || file?.error;
@@ -110,7 +127,7 @@ export default function NoteNode({ id, data, selected }) {
       <Handle type="target" position={Position.Left} />
       <Handle type="source" position={Position.Right} />
       {/* nopan : le double-clic modifie la note au lieu de zoomer la map */}
-      <div className={`note-node nopan ${selected ? 'selected' : ''} ${linkSource === id ? 'link-source' : ''}`} onDoubleClick={file ? undefined : startEditing}>
+      <div className={`note-node nopan ${selected ? 'selected' : ''} ${linkSource === id ? 'link-source' : ''}`} onDoubleClick={bigBrain ? openDraft : file ? undefined : startEditing}>
         {(data.label || api?.linkFile) && (
           <div className="note-header" onDoubleClick={(e) => e.stopPropagation()}>
             <div className="note-title">
@@ -122,7 +139,11 @@ export default function NoteNode({ id, data, selected }) {
                 />
               )}
             </div>
-            {api?.linkFile && (
+            {bigBrain ? (
+              <button className="note-file-action nodrag" type="button" title={t('nodeMenu.edit')} aria-label={t('nodeMenu.edit')} disabled={!file?.revision || busy || !!draft} onClick={openDraft}>
+                <Pencil size={14} aria-hidden="true" />
+              </button>
+            ) : api?.linkFile && (
               <button className="note-file-action nodrag" type="button" title={fileAction} aria-label={fileAction} disabled={busy} onClick={() => run(file ? 'unlinkFile' : 'linkFile')}>
                 <FileActionIcon size={14} aria-hidden="true" />
               </button>
@@ -130,10 +151,27 @@ export default function NoteNode({ id, data, selected }) {
           </div>
         )}
         {file && <div className="note-file-name" title={file.file}>{file.name}</div>}
-        {fileError && <div className="note-file-error" role="status">{t(fileError)}</div>}
-        {file ? (
+        {fileError && <div id={`${id}-file-error`} className="note-file-error" role="status">{t(bigBrain && fileError === 'note.fileConflict' ? 'note.bigBrainConflict' : fileError)}</div>}
+        {bigBrain && draft ? (
+          <form className="note-file-editor nodrag nowheel" onSubmit={saveDraft}>
+            <textarea
+              autoFocus
+              className="note-input"
+              aria-label={data.label}
+              aria-describedby={fileError ? `${id}-file-error` : undefined}
+              value={draft.text}
+              readOnly={busy}
+              onChange={(event) => setDraft({ ...draft, text: event.target.value })}
+              onKeyDown={(event) => { if (event.key === 'Escape' && !busy) { event.stopPropagation(); cancelDraft(); } }}
+            />
+            <div className="note-file-editor-actions">
+              <button className="text-button" type="button" disabled={busy} onClick={cancelDraft}>{t('common.cancel')}</button>
+              <button className="text-button primary" type="submit" disabled={busy}>{t('common.save')}</button>
+            </div>
+          </form>
+        ) : file ? (
           <div className="note-text note-file-text nowheel">
-            {file.text ? <NoteText text={file.text} tasks={file.tasks} busy={busy} onToggle={(line) => run('toggleFileTask', line, file.revision)} /> : !fileError && t('note.fileEmpty')}
+            {file.text ? <NoteText text={file.text} tasks={file.tasks} busy={busy} onToggle={bigBrain ? undefined : (line) => run('toggleFileTask', line, file.revision)} /> : !fileError && t('note.fileEmpty')}
           </div>
         ) : editingText ? (
           <textarea className="note-input nodrag nowheel" placeholder={t('note.placeholder')} {...inputProps} />

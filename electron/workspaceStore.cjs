@@ -52,7 +52,7 @@ function sanitizeData(type, data = {}) {
     }
     case 'note': {
       const label = typeof data.label === 'string' ? data.label.trim().slice(0, 40) : '';
-      return { text: text(data.text), ...(label && { label }) }; // label : nom donné aux agents par le lien Note
+      return { text: text(data.text), ...(label && { label }), ...(data.readOnlyForWorkers === true && { readOnlyForWorkers: true }) };
     }
     case 'visualTest': {
       const lastResult = sanitizeVisualTestResult(data?.lastResult);
@@ -236,7 +236,7 @@ function register(listener, beforeRestore = () => {}, applyPreset = (_id, _cards
     } catch (error) { restoring = false; generation = previousGeneration; return { error: error.message }; }
   });
   ipcMain.handle('workspace:set', (_e, workspace, token) => { if (token === generation) save(workspace); });
-  ipcMain.handle('workspace:setPreset', (event, workspace, token, preset, backlog) => {
+  ipcMain.handle('workspace:setPreset', (event, workspace, token, preset, backlog, bigBrain) => {
     try {
       load();
       const board = sanitize(workspace).boards.find(({ id }) => id === workspace?.activeBoardId);
@@ -256,11 +256,24 @@ function register(listener, beforeRestore = () => {}, applyPreset = (_id, _cards
         }
         projectBacklog = { noteId: note.id, cwd: backlog.cwd, text: note.data.text };
       }
-      applyPreset(board.id, cards, preset, projectBacklog, () => save(workspace), event);
+      let projectBigBrain = null;
+      if (bigBrain != null) {
+        const note = board.nodes.find(({ id }) => id === bigBrain.noteId);
+        const architect = board.nodes.find(({ id }) => id === bigBrain.architectId);
+        if (note?.type !== 'note' || !note.data.readOnlyForWorkers || existingNodes.has(note.id) ||
+            note.id === projectBacklog?.noteId || architect?.type !== 'terminal' ||
+            typeof bigBrain.cwd !== 'string' || architect.data.cwd !== bigBrain.cwd ||
+            board.nodes.some(({ type, data }) => type === 'terminal' && data.cwd !== bigBrain.cwd) ||
+            new Set(board.nodes.map(({ id }) => id)).size !== board.nodes.length) {
+          return { error: t('team.bigBrainFailed') };
+        }
+        projectBigBrain = { noteId: note.id, architectId: architect.id, cwd: bigBrain.cwd, text: note.data.text };
+      }
+      applyPreset(board.id, cards, preset, projectBacklog, () => save(workspace), event, projectBigBrain);
       return { ok: true };
     } catch (error) {
       if (error.missingServers) return { error: t('team.missingMcp', { names: error.missingServers.join(', ') }) };
-      return { error: t(error.noteKey ? 'team.backlogFailed' : 'team.applyFailed') };
+      return { error: t(error.bigBrain ? 'team.bigBrainFailed' : error.noteKey ? 'team.backlogFailed' : 'team.applyFailed') };
     }
   });
   // Version synchrone pour la fermeture de la fenêtre : une sauvegarde asynchrone n'aurait pas le temps de finir.

@@ -48,21 +48,28 @@ function commandArgs(shell, command) {
 // command et shell viennent des paramètres, lus côté Node (jamais envoyés par l'interface).
 // Renvoie { buffer } : vide pour un nouveau terminal, les dernières sorties s'il tournait déjà.
 // env : variables ajoutées à celles de l'app (adresse d'Orchestra pour les hooks de Codex).
-function create({ id, command, shell, cwd, env, cols = 100, rows = 30, exitOnCommand = false }, onData, onExit) {
+function create({ id, command, shell, cwd, env, cols = 100, rows = 30, exitOnCommand = false, sandbox }, onData, onExit) {
   // Déjà lancé (case d'un tableau qu'on rouvre, ou React StrictMode qui monte deux fois).
   if (terminals.has(id)) return { buffer: terminals.get(id).buffer };
 
-  const executable = resolveShell(shell);
-  const args = exitOnCommand && command ? commandArgs(executable, command) : [];
-  const term = pty.spawn(executable, args, {
-    name: 'xterm-256color',
-    cols,
-    rows,
-    cwd: safeCwd(cwd),
-    env: env ? { ...process.env, ...env } : process.env,
-  });
+  const executable = sandbox?.executable ?? resolveShell(shell);
+  const args = sandbox?.args ?? (exitOnCommand && command ? commandArgs(executable, command) : []);
+  const extraEnv = sandbox?.env ?? env;
+  let term;
+  try {
+    term = pty.spawn(executable, args, {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd: safeCwd(sandbox ? os.homedir() : cwd),
+      env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
+    });
+  } catch (error) {
+    sandbox?.close();
+    throw error;
+  }
 
-  const entry = { term, buffer: '', offset: 0, cols, rows };
+  const entry = { term, buffer: '', offset: 0, cols, rows, sandbox };
   term.onData((data) => {
     if (terminals.get(id) !== entry) return;
     entry.buffer = (entry.buffer + data).slice(-MAX_BUFFER);
@@ -73,6 +80,7 @@ function create({ id, command, shell, cwd, env, cols = 100, rows = 30, exitOnCom
     // Terminal tué puis relancé sous le même id (changement de branche) : la fin de l'ancien ne compte pas.
     if (terminals.get(id) !== entry) return;
     terminals.delete(id);
+    sandbox?.close();
     onExit(id, exitCode, terminalSnapshot(entry));
   });
 
@@ -80,7 +88,7 @@ function create({ id, command, shell, cwd, env, cols = 100, rows = 30, exitOnCom
 
   // On démarre un shell puis on tape la commande de l'agent :
   // le PATH de l'utilisateur est chargé et le terminal reste ouvert si l'agent quitte.
-  if (command && !exitOnCommand) {
+  if (command && !exitOnCommand && !sandbox) {
     entry.start = setTimeout(() => {
       if (terminals.get(id) === entry) term.write(command + '\r');
     }, 300);
@@ -113,7 +121,8 @@ function kill(id) {
   if (!entry) return;
   terminals.delete(id);
   clearTimeout(entry.start);
-  entry.term.kill();
+  try { entry.term.kill(); }
+  finally { entry.sandbox?.close(); }
 }
 
 function killAll() {

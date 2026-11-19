@@ -194,4 +194,6 @@ function onOutput(id, data = '') {
   }, prompt ? PROMPT_DELAY : QUIET_DELAY);
 }
 
-module.exports = { init, register, unregister, info, busy, rename, acknowledge, onHook, onInput, onOutput, arm, answerPermission };
+const kind = (id) => entries.get(id)?.kind;
+
+module.exports = { init, register, unregister, info, kind, busy, rename, acknowledge, onHook, onInput, onOutput, arm, answerPermission };

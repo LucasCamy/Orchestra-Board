@@ -136,3 +136,38 @@ test('preset backlogs reject reparse targets and refuse to replace an unusable B
   assert.equal(fs.lstatSync(file).isSymbolicLink(), true);
   assert.equal(fs.readFileSync(path.join(cwd, 'TODO.md'), 'utf8'), '- [ ] Alternate\n');
 });
+
+test('Big Brain binds the existing project file, preserves encoding and protects aliases after restart', (t) => {
+  const { service, file, profile } = setup(t, '');
+  const cwd = path.dirname(file);
+  const agents = path.join(cwd, 'AGENTS.md');
+  const original = '\uFEFF# Existing rules\r\n- [ ] Review\r\n';
+  const board = { boards: [{ id: 'squad', nodes: [...workspace.boards[0].nodes, { id: 'alias', type: 'note' }] }] };
+  const binding = { cwd, noteId: 'note', architectId: 'architect', text: '# Seed' };
+  fs.writeFileSync(agents, original);
+
+  assert.throws(() => service.applyBigBrain('squad', binding, () => {
+    service.setWorkspace(board);
+    throw new Error('board save failed');
+  }), /board save failed/);
+  assert.equal(service.bigBrain('squad'), undefined);
+  assert.equal(service.get('note'), null);
+  service.applyBigBrain('squad', binding, () => service.setWorkspace(board));
+  assert.equal(fs.readFileSync(agents, 'utf8'), original);
+  const alias = service.link('alias', agents);
+  assert.throws(() => service.toggle('alias', 1, alias.revision), { noteKey: 'note.bigBrainReadOnly' });
+  assert.throws(() => service.unlink('note'), { noteKey: 'note.bigBrainReadOnly' });
+  assert.throws(() => service.link('note', file), { noteKey: 'note.bigBrainReadOnly' });
+  const state = service.writeBigBrain('note', '# Nova decisão\n', service.get('note').revision);
+  assert.equal(state.text, '# Nova decisão\n');
+  assert.equal(fs.readFileSync(agents, 'utf8'), '\uFEFF# Nova decisão\r\n');
+  assert.equal(service.get('alias').text, state.text);
+  service.dispose();
+
+  const restored = createNoteFiles(profile, () => {});
+  t.after(restored.dispose);
+  restored.setWorkspace(board);
+  assert.equal(restored.bigBrain('squad').architectId, 'architect');
+  assert.equal(restored.readBigBrain('squad').text, state.text);
+  assert.throws(() => restored.writeBigBrain('alias', 'Forbidden', state.revision), { noteKey: 'note.fileUnavailable' });
+});

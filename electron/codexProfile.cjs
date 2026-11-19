@@ -24,21 +24,21 @@ const hooksPath = () => path.join(codexHome(), 'hooks.json');
 // Codex lance la commande d'un hook sans shell, après l'avoir découpée comme un shell : cmd (ou sh) lit
 // l'adresse de la case dans l'environnement. Aucun guillemet ni & à l'intérieur (ils ne survivent pas au
 // découpage). Une commande différente par événement : Codex ne garde qu'un hook quand la même commande revient.
-const hookCommand = (event) =>
-  process.platform === 'win32'
+const hookCommand = (event, platform = process.platform) =>
+  platform === 'win32'
     ? `cmd /d /s /c "if defined ${MARKER} curl -s -m 3 --data-binary @- %${MARKER}%/${event}"`
     : `sh -c 'if [ -n "$${MARKER}" ]; then curl -s -m 3 --data-binary @- "$${MARKER}/${event}"; fi'`;
 
 const toml = (value) => JSON.stringify(value); // chaîne TOML (mêmes échappements que JSON)
 
-function profileContent() {
+function profileContent(command = process.execPath, serverPath = mcpServerPath()) {
   return [
     '# Écrit par Orchestra : serveur MCP des cases Codex lancées depuis Orchestra (codex -p orchestra).',
     '# Ne pas modifier à la main, il est réécrit au démarrage de l\'app.',
     '',
     '[mcp_servers.orchestra]',
-    `command = ${toml(process.execPath)}`,
-    `args = [${toml(mcpServerPath())}]`,
+    `command = ${toml(command)}`,
+    `args = [${toml(serverPath)}]`,
     'env = { ELECTRON_RUN_AS_NODE = "1" }',
     'env_vars = ["ORCHESTRA_URL"]',
     'default_tools_approval_mode = "approve"',
@@ -51,17 +51,20 @@ function profileContent() {
   ].join('\n') + '\n';
 }
 
-function ensureProfile(name = PROFILE, servers = {}) {
-  const file = profilePath(name);
-  const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
-  const kept = current.search(/^\[hooks/m); // approbations des hooks écrites par Codex
-  const extra = Object.entries(servers).map(([id, server]) => {
+function extraServers(servers) {
+  return Object.entries(servers).map(([id, server]) => {
     const settings = server.type === 'http'
       ? [`url = ${toml(server.url)}`]
       : [`command = ${toml(server.command)}`, `args = ${toml(server.args)}`];
     return `\n[mcp_servers.${toml(id)}]\n${settings.join('\n')}\n`;
   }).join('');
-  const next = profileContent() + extra + (kept >= 0 ? `\n${current.slice(kept)}` : '');
+}
+
+function ensureProfile(name = PROFILE, servers = {}) {
+  const file = profilePath(name);
+  const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+  const kept = current.search(/^\[hooks/m); // approbations des hooks écrites par Codex
+  const next = profileContent() + extraServers(servers) + (kept >= 0 ? `\n${current.slice(kept)}` : '');
   if (current === next) return;
   fs.mkdirSync(codexHome(), { recursive: true });
   fs.writeFileSync(file, next);
@@ -125,4 +128,9 @@ function ensure() {
 // Variables d'environnement du terminal d'une case Codex.
 const env = (id) => ({ ORCHESTRA_HOOK_URL: hookBase(id), ORCHESTRA_URL: toolUrl(id) });
 
-module.exports = { PROFILE, ensure, env, profileFor };
+function workerConfig(servers, serverPath) {
+  const hooks = Object.fromEntries(EVENTS.map((event) => [event, [{ hooks: [{ type: 'command', command: hookCommand(event, 'linux'), timeout: 5 }] }]]));
+  return { profile: profileContent('node', serverPath) + extraServers(servers), hooks };
+}
+
+module.exports = { PROFILE, ensure, env, profileFor, workerConfig };

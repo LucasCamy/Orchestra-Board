@@ -76,7 +76,7 @@ contextBridge.exposeInMainWorld('workspace', {
     return () => ipcRenderer.removeListener('workspace:saveError', listener);
   },
   set: (workspace) => ipcRenderer.invoke('workspace:set', workspace, workspaceGeneration),
-  setPreset: (workspace, mcp, backlog) => ipcRenderer.invoke('workspace:setPreset', workspace, workspaceGeneration, mcp, backlog),
+  setPreset: (workspace, mcp, backlog, bigBrain) => ipcRenderer.invoke('workspace:setPreset', workspace, workspaceGeneration, mcp, backlog, bigBrain),
   saveSync: (workspace) => ipcRenderer.sendSync('workspace:saveSync', workspace, workspaceGeneration),
 });
 
@@ -88,6 +88,29 @@ contextBridge.exposeInMainWorld('git', {
   diff: (cwd, file) => ipcRenderer.invoke('git:diff', cwd, file),
   untracked: (cwd, folder, limit) => ipcRenderer.invoke('git:untracked', cwd, folder, limit),
   openInEditor: (cwd, file) => ipcRenderer.invoke('git:openInEditor', cwd, file),
+});
+
+contextBridge.exposeInMainWorld('workerChanges', {
+  targets: (boardId) => ipcRenderer.invoke('workerChanges:targets', boardId),
+  review: (boardId, targetId) => ipcRenderer.invoke('workerChanges:review', boardId, targetId),
+  diff: (boardId, targetId, snapshot, index) => ipcRenderer.invoke('workerChanges:diff', boardId, targetId, snapshot, index),
+  apply: (boardId, targetId, snapshot, selection) => ipcRenderer.invoke('workerChanges:apply', boardId, targetId, snapshot, selection),
+  undoStatus: (boardId, targetId) => ipcRenderer.invoke('workerChanges:undoStatus', boardId, targetId),
+  undo: (boardId, targetId, applicationId, batchId) => ipcRenderer.invoke('workerChanges:undo', boardId, targetId, applicationId, batchId),
+  redo: (boardId, targetId, applicationId, batchId) => ipcRenderer.invoke('workerChanges:redo', boardId, targetId, applicationId, batchId),
+  previewReplay: (boardId, targetId, direction, selection) => ipcRenderer.invoke('workerChanges:previewReplay', boardId, targetId, direction, selection),
+  updateReplayPreview: (boardId, targetId, id, files) => ipcRenderer.invoke('workerChanges:updateReplayPreview', boardId, targetId, id, files),
+  refreshReplayPreview: (boardId, targetId, id, drafts) => ipcRenderer.invoke('workerChanges:refreshReplayPreview', boardId, targetId, id, drafts),
+  updateReplayHunks: (boardId, targetId, id, file, indexes) => ipcRenderer.invoke('workerChanges:updateReplayHunks', boardId, targetId, id, { file, indexes }),
+  updateReplayLines: (boardId, targetId, id, file, indexes, reset) => ipcRenderer.invoke('workerChanges:updateReplayLines', boardId, targetId, id, { file, indexes, reset }),
+  replayDiff: (boardId, targetId, id, file) => ipcRenderer.invoke('workerChanges:replayDiff', boardId, targetId, id, file),
+  replayConflicts: (boardId, targetId, id, file) => ipcRenderer.invoke('workerChanges:replayConflicts', boardId, targetId, id, file),
+  resolveReplayConflict: (boardId, targetId, id, choice) => ipcRenderer.invoke('workerChanges:resolveReplayConflict', boardId, targetId, id, choice),
+  resolveReplayConflictBatch: (boardId, targetId, id, batch) => ipcRenderer.invoke('workerChanges:resolveReplayConflictBatch', boardId, targetId, id, batch),
+  replayInline: (boardId, targetId, id, file, line) => ipcRenderer.invoke('workerChanges:replayInline', boardId, targetId, id, { file, line }),
+  updateReplayInline: (boardId, targetId, id, file, line, ranges) => ipcRenderer.invoke('workerChanges:updateReplayInline', boardId, targetId, id, { file, line, ranges }),
+  updateReplayInlineBatch: (boardId, targetId, id, selections) => ipcRenderer.invoke('workerChanges:updateReplayInlineBatch', boardId, targetId, id, selections),
+  confirmReplay: (boardId, targetId, id) => ipcRenderer.invoke('workerChanges:confirmReplay', boardId, targetId, id),
 });
 
 contextBridge.exposeInMainWorld('teams', {
@@ -162,6 +185,7 @@ contextBridge.exposeInMainWorld('notes', {
   linkFile: (id) => ipcRenderer.invoke('note:file:link', id),
   unlinkFile: (id) => ipcRenderer.invoke('note:file:unlink', id),
   toggleFileTask: (id, line, revision) => ipcRenderer.invoke('note:file:toggle', id, line, revision),
+  writeBigBrain: (id, text, revision) => ipcRenderer.invoke('note:file:writeBigBrain', id, text, revision),
   onFileChange: (cb) => {
     const listener = (_e, id, state) => cb(id, state);
     ipcRenderer.on('note:file:change', listener);

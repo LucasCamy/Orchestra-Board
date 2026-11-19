@@ -54,11 +54,15 @@ export default function TeamTemplates({ boardId, board, getBoard, boardName, onC
     });
     return !needsHooks || Boolean(agent.hooks);
   };
+  const available = (node, agent) => {
+    const sandbox = template.bigBrain && (node.id !== template.bigBrain.architectId || agent.id !== 'antigravity');
+    return sandbox || installed[agent.id];
+  };
   const choice = (node) => {
     if (Object.hasOwn(replacements, node.id)) return replacements[node.id];
     const id = node.data.agentId;
     const agent = agents.find((entry) => entry.id === id);
-    return agent && installed[id] && compatible(node, agent) ? id : '';
+    return agent && available(node, agent) && compatible(node, agent) ? id : '';
   };
   const summary = (item) => t('team.summary', { agents: terminals(item.board).filter((node) => node.data.agentId !== 'shell').length, links: item.board.edges.length });
   const roles = terminals(template?.board).filter((node) => node.data.role);
@@ -74,7 +78,8 @@ export default function TeamTemplates({ boardId, board, getBoard, boardName, onC
     const cardAgents = Object.fromEntries(sourceCards.map((node) => [node.id, choice(node)]));
     const result = await window.teams.create(selected, folder, {}, visualTests.length ? testUrl.trim() : '', cardAgents);
     if (result.error) { setError(result.error); return; }
-    const created = await onCreate(result.value.name, result.value.board, result.value.mcp, bindBacklog ? result.value.backlog : undefined);
+    const { name, board, mcp, backlog, bigBrain } = result.value;
+    const created = await onCreate(name, board, mcp, bindBacklog ? backlog : undefined, bigBrain);
     if (!created || created.error) { setError(created?.error || t('team.boardLimit')); return; }
     onClose();
   });
@@ -132,6 +137,7 @@ export default function TeamTemplates({ boardId, board, getBoard, boardName, onC
           </details>}
 
           <h3 className="team-section">{t('team.setup')}</h3>
+          {template.bigBrain && <p className="hint">{t('team.workerSandboxHint')}</p>}
           <label className="field"><span>{t('team.folder')}</span><div className="field-row">
             <input type="text" value={folder} placeholder={t('team.folderPlaceholder')} onChange={(e) => setFolder(e.target.value)} />
             <button className="text-button" title={t('team.pickFolder')} onClick={async () => { const picked = await window.fs.pickFolder(folder); if (picked) setFolder(picked); }}><FolderOpen size={15} />{t('team.browse')}</button>
@@ -156,7 +162,10 @@ export default function TeamTemplates({ boardId, board, getBoard, boardName, onC
                 <ArrowRight size={14} className="muted" />
                 <select className={choice(node) ? '' : 'missing'} value={choice(node)} onChange={(e) => setReplacements((current) => ({ ...current, [node.id]: e.target.value }))}>
                   <option value="">{t('team.chooseAgent')}</option>
-                  {agents.filter((agent) => compatible(node, agent)).map((agent) => <option key={agent.id} value={agent.id} disabled={!installed[agent.id]}>{agent.name}{!installed[agent.id] ? ` — ${t('team.notInstalled')}` : ''}</option>)}
+                  {agents.filter((agent) => compatible(node, agent)).map((agent) => {
+                    const usable = available(node, agent);
+                    return <option key={agent.id} value={agent.id} disabled={!usable}>{agent.name}{!usable ? ` — ${t('team.notInstalled')}` : ''}</option>;
+                  })}
                 </select>
               </label>;
             })}</div>
