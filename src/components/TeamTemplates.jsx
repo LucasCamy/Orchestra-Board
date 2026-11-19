@@ -45,7 +45,7 @@ export default function TeamTemplates({ boardId, board, getBoard, boardName, onC
   }, [onClose]);
 
   const template = templates.find((item) => item.id === selected);
-  const visualTests = template?.board.nodes.filter((node) => node.type === 'visualTest') ?? [];
+  const visualTests = template?.board.nodes.filter((node) => ['visualTest', 'interactiveBrowser'].includes(node.type)) ?? [];
   const sourceCards = terminals(template?.board).filter((node) => node.data.agentId !== 'shell');
   const compatible = (node, agent) => {
     const needsHooks = node.data.role || template.mcp?.cards[node.id]?.length || template.board.edges.some((edge) => {
@@ -152,7 +152,7 @@ export default function TeamTemplates({ boardId, board, getBoard, boardName, onC
           {visualTests.length > 0 && <label className="field">
             <span>{t('team.testUrl')}</span>
             <input type="text" inputMode="url" value={testUrl} placeholder="http://localhost:3000" onChange={(e) => setTestUrl(e.target.value)} />
-            {visualTests.some((node) => node.data.url) && <span className="hint">{t('team.testUrlHint')}</span>}
+            {visualTests.some((node) => node.data.url || node.data.tabs?.[0]?.url) && <span className="hint">{t('team.testUrlHint')}</span>}
           </label>}
           {sourceCards.length > 0 && <div className="field"><span>{t('team.agents')}</span>
             <div className="team-agents">{sourceCards.map((node) => {

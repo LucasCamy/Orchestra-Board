@@ -102,15 +102,18 @@ test('a saved preset reuses MCP IDs across repositories and preserves explicit c
 test('the maintenance preset provides Linear and Chrome roles plus a project test URL', (t) => {
   const { teams, directory } = templates(t);
   const result = teams.instantiate('recipe-maintenance', directory, {}, agents, 'http://localhost:3001/tasks');
-  const [lead, developer, qa, plan, visual] = result.board.nodes;
+  const [lead, developer, qa, plan, visual, browser, linear] = result.board.nodes;
   assert.deepEqual(result.mcp.cards, { [lead.id]: ['linear'], [qa.id]: ['chrome-devtools'] });
   assert.equal(result.mcp.cards[developer.id], undefined);
   assert.match(lead.data.role, /team.guide.linear/);
   assert.match(qa.data.role, /team.guide.chrome/);
   assert.equal(visual.data.url, 'http://localhost:3001/tasks');
+  assert.equal(browser.data.tabs[0].url, 'http://localhost:3001/tasks');
   assert.deepEqual(result.backlog, { noteId: plan.id, cwd: directory });
   assert.ok(result.board.edges.some(({ source, target, data }) => source === developer.id && target === qa.id && data.mode === 'delegate' && data.bidirectional));
   assert.ok(result.board.edges.some(({ source, target, data }) => source === qa.id && target === visual.id && data.mode === 'visual'));
+  assert.ok(result.board.edges.some(({ source, target, data }) => source === qa.id && target === browser.id && data.mode === 'browser'));
+  assert.ok(result.board.edges.some(({ source, target, data }) => source === linear.id && target === lead.id && data.mode === 'linear'));
   assert.throws(() => teams.instantiate('recipe-maintenance', directory, {}, agents, 'file:///local'), /invalidTestUrl/);
   const catalog = createMcpCatalog(directory);
   assert.throws(() => catalog.applyPreset('new-board', [lead.id, qa.id], result.mcp, () => {
@@ -123,7 +126,7 @@ test('the maintenance preset provides Linear and Chrome roles plus a project tes
 test('enterprise roles have independent agent choices and the expected collaboration paths', (t) => {
   const { teams, directory } = templates(t);
   const setup = teams.instantiate('recipe-enterprise-squad', directory, {}, agents, '', { backend: 'claude-code' });
-  const [architect, lead, backend, frontend, qa, msbuild, npm, plan, visual, bigBrain] = setup.board.nodes;
+  const [architect, lead, backend, frontend, qa, msbuild, npm, plan, visual, bigBrain, browser, linear] = setup.board.nodes;
   const linked = (from, to, mode, twoWay = false) =>
     setup.board.edges.some(({ source, target, data }) => source === from.id && target === to.id && data.mode === mode && data.bidirectional === twoWay);
   assert.equal(architect.data.agentId, 'antigravity');
@@ -138,6 +141,8 @@ test('enterprise roles have independent agent choices and the expected collabora
   assert.ok(linked(backend, qa, 'delegate', true));
   assert.ok(linked(frontend, qa, 'delegate', true));
   assert.ok(linked(qa, visual, 'visual'));
+  assert.ok(linked(qa, browser, 'browser'));
+  assert.ok(setup.board.edges.some(({ source, target, data }) => source === linear.id && target === lead.id && data.mode === 'linear'));
   assert.deepEqual(setup.bigBrain, { noteId: bigBrain.id, architectId: architect.id, cwd: directory });
   assert.ok([architect, lead, backend, frontend, qa].every((card) => linked(card, bigBrain, 'note')));
   assert.ok([lead, backend, frontend, qa].every((card) => card.data.role.startsWith('team.guide.bigBrainWorker')));

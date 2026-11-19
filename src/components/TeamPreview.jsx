@@ -1,7 +1,7 @@
 import { boundsOf, nodeSize } from '../lib/layout.js';
 import useT from '../hooks/useT.js';
 
-const MODES = ['delegate', 'relay', 'terminal', 'note', 'visual'];
+const MODES = ['delegate', 'relay', 'terminal', 'note', 'visual', 'browser', 'linear'];
 
 // Point où le segment centre → centre sort du rectangle de la case.
 function border(center, size, dx, dy) {
@@ -40,7 +40,11 @@ export default function TeamPreview({ board, agents }) {
         const note = node.type !== 'terminal';
         const agent = agents.find((entry) => entry.id === node.data.agentId);
         const label = node.data.label || agent?.name ||
-          (node.type === 'panel' ? t(`${node.data.panel}.title`) : t(node.type === 'visualTest' ? 'tool.visualTest' : 'team.note'));
+          (node.type === 'panel' ? t(`${node.data.panel}.title`) :
+           node.type === 'visualTest' ? t('tool.visualTest') :
+           node.type === 'interactiveBrowser' ? t('dock.browser') :
+           node.type === 'linearBoard' ? t('dock.linear') :
+           t('team.note'));
         // Largeur estimée du texte (tailles du CSS) : un nom trop long est resserré dans sa case.
         const fit = label.length * (note ? 56 : 84) * 0.55 > width * 0.86 ? { textLength: width * 0.86, lengthAdjust: 'spacingAndGlyphs' } : {};
         return <g key={node.id} className={`team-node ${note ? 'note' : ''}`}>

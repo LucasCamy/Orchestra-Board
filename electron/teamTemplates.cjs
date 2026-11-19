@@ -46,6 +46,20 @@ function recipes() {
     data: { label: t('team.bigBrain'), text: t('team.bigBrainSeed'), readOnlyForWorkers: true },
   };
   const runner = (x, y) => ({ id: 'visual', type: 'visualTest', position: { x, y }, style: { width: 490, height: 450 }, data: { expectedStatus: 200 } });
+  const browser = (id, x, y, url = 'http://localhost:3000') => ({
+    id,
+    type: 'interactiveBrowser',
+    position: { x, y },
+    style: { width: 800, height: 540 },
+    data: { tabs: [{ id: 'tab-1', url, title: '' }], activeTabId: 'tab-1', newTabUrl: 'about:blank' },
+  });
+  const linearNode = (id, x, y) => ({
+    id,
+    type: 'linearBoard',
+    position: { x, y },
+    style: { width: 960, height: 494 },
+    data: {},
+  });
   const mcp = { board: [], cards: { lead: ['linear'], qa: ['chrome-devtools'] } };
   const maintenance = {
     id: 'recipe-maintenance',
@@ -58,9 +72,11 @@ function recipes() {
       nodes: [
         node('lead', 'claude-code', t('team.lead'), 0, 0, t('team.guide.linear')),
         node('dev', 'codex', t('team.dev'), 760, 0, t('team.guide.developer')),
-        node('qa', 'codex', 'QA', 760, 520, t('team.guide.chrome')),
+        node('qa', 'antigravity', 'QA', 760, 520, t('team.guide.chrome')),
         backlog(0, 520),
         runner(1520, 520),
+        browser('browser', 1520, 0, 'http://localhost:3000'),
+        linearNode('linear', -1020, 0),
       ],
       edges: [
         link('lead-dev', 'lead', 'dev', 'delegate'),
@@ -68,6 +84,8 @@ function recipes() {
         link('lead-plan', 'lead', 'plan', 'note'),
         link('dev-qa', 'dev', 'qa', 'delegate', { bidirectional: true }),
         link('qa-visual', 'qa', 'visual', 'visual'),
+        link('qa-browser', 'qa', 'browser', 'browser'),
+        link('linear-lead', 'linear', 'lead', 'linear'),
       ],
     }),
   };
@@ -91,6 +109,8 @@ function recipes() {
         backlog(0, 900),
         runner(2280, 900),
         bigBrain,
+        browser('browser', 1520, 1420, 'http://localhost:3000'),
+        linearNode('linear', -1020, 380),
       ],
       edges: [
         link('architect-lead', 'architect', 'lead', 'delegate'),
@@ -104,13 +124,15 @@ function recipes() {
         link('backend-qa', 'backend', 'qa', 'delegate', { bidirectional: true }),
         link('frontend-qa', 'frontend', 'qa', 'delegate', { bidirectional: true }),
         link('qa-visual', 'qa', 'visual', 'visual'),
+        link('qa-browser', 'qa', 'browser', 'browser'),
+        link('linear-lead', 'linear', 'lead', 'linear'),
         ...['architect', 'lead', 'backend', 'frontend', 'qa'].map((id) => link(`${id}-big-brain`, id, bigBrain.id, 'note')),
       ],
     }),
   };
   return [
     { id: 'recipe-review', name: t('team.recipe.review'), description: t('team.recipe.review.description'), builtin: true, board: templateBoard({ nodes: [node('dev', 'claude-code', t('team.dev'), 0, 0, t('team.role.dev')), node('review', 'codex', t('team.reviewer'), 760, 0, t('team.role.review'))], edges: [link('review-link', 'dev', 'review', 'relay', { prompt: t('team.reviewPrompt') })] }) },
-    { id: 'recipe-lead', name: t('team.recipe.lead'), description: t('team.recipe.lead.description'), builtin: true, board: templateBoard({ nodes: [node('lead', 'claude-code', t('team.lead'), 380, 0, t('team.role.lead')), node('worker-a', 'codex', t('team.workerA'), 0, 540), node('worker-b', 'claude-code', t('team.workerB'), 760, 540), { id: 'plan', type: 'note', position: { x: 1100, y: 40 }, style: { width: 270, height: 180 }, data: { label: t('team.plan'), text: t('team.planText') } }], edges: [link('lead-a', 'lead', 'worker-a', 'delegate'), link('lead-b', 'lead', 'worker-b', 'delegate'), link('lead-plan', 'lead', 'plan', 'note')] }) },
+    { id: 'recipe-lead', name: t('team.recipe.lead'), description: t('team.recipe.lead.description'), builtin: true, board: templateBoard({ nodes: [node('lead', 'claude-code', t('team.lead'), 380, 0, t('team.role.lead')), node('worker-a', 'codex', t('team.workerA'), 0, 540), node('worker-b', 'antigravity', t('team.workerB'), 760, 540), { id: 'plan', type: 'note', position: { x: 1100, y: 40 }, style: { width: 270, height: 180 }, data: { label: t('team.plan'), text: t('team.planText') } }], edges: [link('lead-a', 'lead', 'worker-a', 'delegate'), link('lead-b', 'lead', 'worker-b', 'delegate'), link('lead-plan', 'lead', 'plan', 'note')] }) },
     { id: 'recipe-terminal', name: t('team.recipe.terminal'), description: t('team.recipe.terminal.description'), builtin: true, board: templateBoard({ nodes: [node('dev', 'claude-code', t('team.dev'), 0, 0, t('team.role.dev')), node('terminal', 'shell', t('team.terminal'), 760, 0)], edges: [link('terminal-link', 'dev', 'terminal', 'terminal')] }) },
     maintenance,
     enterprise,
@@ -198,6 +220,22 @@ function instantiate(id, cwd, replacements = {}, agents = settings.load().agents
       } else {
         copy.data.url = url.href;
       }
+    }
+    if (node.type === 'interactiveBrowser' && url) {
+      const firstTab = copy.data?.tabs?.[0];
+      const saved = URL.parse(firstTab?.url);
+      const tabId = firstTab?.id || randomUUID();
+      let targetUrl = url.href;
+      if (saved && ['http:', 'https:'].includes(saved.protocol)) {
+        const target = new URL(url.origin);
+        target.pathname = (url.pathname && url.pathname !== '/') ? url.pathname : saved.pathname;
+        targetUrl = target.href;
+      }
+      copy.data = {
+        ...copy.data,
+        tabs: [{ id: tabId, url: targetUrl, title: '' }],
+        activeTabId: tabId,
+      };
     }
     if (node.type !== 'terminal') return copy;
     const defaultAgent = node.data.agentId;

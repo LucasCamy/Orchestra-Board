@@ -7,6 +7,7 @@ const { app, ipcMain } = require('electron');
 // resumeArgs : capacité de reprise ; pour les agents à hooks, main.cjs impose la session exacte.
 // hooks : identifiant de l'adaptateur qui gère le statut, les réponses et le MCP d'Orchestra.
 const BUILTIN_AGENTS = [
+  { id: 'antigravity', name: 'Antigravity', command: 'agy', color: '#3186ff', resumeArgs: '--continue', hooks: 'antigravity' },
   { id: 'claude-code', name: 'Claude Code', command: 'claude', color: '#d97757', resumeArgs: '--continue', hooks: 'claude' },
   { id: 'codex', name: 'Codex', command: 'codex', color: '#10a37f', resumeArgs: 'resume --last', hooks: 'codex' },
   { id: 'gemini', name: 'Gemini CLI', command: 'gemini', color: '#4285f4', resumeArgs: '--resume latest' },
@@ -16,7 +17,6 @@ const BUILTIN_AGENTS = [
 // Catalogue : agents connus, absents du dock tant qu'on ne les ajoute pas (Paramètres › Agents). Logos dans
 // src/assets/agents/<id>, descriptions dans src/locales (catalog.<id>). resumeArgs seulement quand l'option de reprise est sûre.
 const CATALOG_AGENTS = [
-  { id: 'antigravity', name: 'Antigravity', command: 'agy', color: '#3186ff', resumeArgs: '--continue', hooks: 'antigravity' }, // successeur de Gemini CLI
   { id: 'aider', name: 'Aider', command: 'aider', color: '#14b014', resumeArgs: '--restore-chat-history' },
   { id: 'qwen', name: 'Qwen Code', command: 'qwen', color: '#615ced' },
   { id: 'opencode', name: 'OpenCode', command: 'opencode', color: '#8b93a7', resumeArgs: '--continue' },
