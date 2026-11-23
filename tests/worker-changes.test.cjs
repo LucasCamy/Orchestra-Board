@@ -1510,6 +1510,99 @@ test('saved replay drafts survive a restart and restore only fragments that stil
   assert.deepEqual(fs.readdirSync(folder), []);
 });
 
+test('redo of a resumed conflict never revives a redo discarded by a new application', async (t) => {
+  const { target, source, service, restart, host, put } = fixture(t);
+  const file = 'code.js';
+  const read = () => fs.readFileSync(path.join(source, file), 'utf8');
+  const gap = (label) => Array.from({ length: 10 }, (_, index) => `${label} ${index}`).join('\n');
+  const code = (first, middle, last) => [first, gap('top'), middle, gap('bottom'), last, ''].join('\n');
+  const original = code('original alpha', 'original beta', 'original gamma');
+  const worker = code('worker alpha', 'worker beta', 'worker gamma');
+  host(file, original);
+  put(file, original);
+  host('other.js', 'start\n');
+  put('other.js', 'start\n');
+  await service.initialize(target);
+  put(file, worker);
+  const batch = await applyWorkerBatch(service, target);
+  const history = (instance) => instance.undoStatus(target).batches.filter(({ id }) => id === batch.id);
+
+  const first = service.previewReplay(target, 'undo', replaySelection(history(service), 'undo'));
+  assert.equal((await service.replayDiff(target, first.id, file)).hunks.length, 3);
+  const firstPick = service.updateReplayHunks(target, first.id, { file, indexes: [0] });
+  assert.equal(service.confirmReplay(target, firstPick.id).restored, 1);
+  assert.equal(read(), code('original alpha', 'worker beta', 'worker gamma'));
+
+  const scope = replaySelection(history(service), 'undo');
+  const second = service.previewReplay(target, 'undo', scope);
+  assert.equal((await service.replayDiff(target, second.id, file)).hunks.length, 2);
+  const secondPick = service.updateReplayHunks(target, second.id, { file, indexes: [0] });
+  const local = code('original alpha', 'local beta', 'worker gamma');
+  host(file, local);
+  const refreshed = await service.refreshReplayPreview(target, secondPick.id);
+  const [{ key }] = service.replayConflicts(target, refreshed.id, file).regions;
+  const draft = { file, key, choice: 'selected' };
+  assert.deepEqual(service.saveReplayDraft(target, refreshed.id, { items: [draft] }), { saved: true });
+
+  put('other.js', 'later application\n');
+  await applyWorkerBatch(service, target);
+  assert.equal(history(service)[0].redo, null);
+  assert.deepEqual(replaySelection(history(service), 'undo'), scope);
+
+  const resumed = restart();
+  const reopened = await resumed.openReplayPreview(target, 'undo', scope);
+  assert.deepEqual(reopened.restoredDrafts, [draft]);
+  const resolved = await resumed.resolveReplayConflictBatch(target, reopened.id, { items: [{ file, key, strategy: 'selected' }] });
+  assert.equal(resumed.confirmReplay(target, resolved.id).restored, 1);
+  assert.equal(read(), code('original alpha', 'original beta', 'worker gamma'));
+  const [redo] = replaySelection(history(resumed), 'redo');
+  assert.equal(resumed.redo(target, redo.id, redo.batchId).reapplied, 1);
+  assert.equal(read(), local);
+  assert.equal(fs.readFileSync(path.join(source, 'other.js'), 'utf8'), 'later application\n');
+});
+
+test('re-including an excluded file after reopening a draft keeps its saved hunk selection', async (t) => {
+  const { target, source, service, restart, host, put } = fixture(t);
+  const file = 'code.js';
+  const conflictFile = 'review.js';
+  const gap = Array.from({ length: 12 }, (_, index) => `context ${index}`).join('\n');
+  const code = (first, last) => [first, gap, last, ''].join('\n');
+  const original = code('original top', 'original bottom');
+  const worker = code('worker top', 'worker bottom');
+  const partial = code('original top', 'worker bottom');
+  for (const name of [file, conflictFile]) {
+    host(name, original);
+    put(name, original);
+  }
+  await service.initialize(target);
+  for (const name of [file, conflictFile]) put(name, worker);
+  await applyWorkerBatch(service, target);
+  const scope = replaySelection(service.undoStatus(target).batches, 'undo');
+  const initial = service.previewReplay(target, 'undo', scope);
+  await service.replayDiff(target, initial.id, file);
+  const firstPick = service.updateReplayHunks(target, initial.id, { file, indexes: [0] });
+  await service.replayDiff(target, firstPick.id, conflictFile);
+  const secondPick = service.updateReplayHunks(target, firstPick.id, { file: conflictFile, indexes: [0] });
+  const local = code('local top', 'worker bottom');
+  host(conflictFile, local);
+  const refreshed = await service.refreshReplayPreview(target, secondPick.id);
+  const [{ key }] = service.replayConflicts(target, refreshed.id, conflictFile).regions;
+  const scoped = service.updateReplayPreview(target, refreshed.id, []);
+  const draft = { file: conflictFile, key, choice: 'selected' };
+  assert.deepEqual(service.saveReplayDraft(target, scoped.id, { items: [draft] }), { saved: true });
+
+  const resumed = restart();
+  const reopened = await resumed.openReplayPreview(target, 'undo', scope);
+  assert.deepEqual(reopened.included, []);
+  assert.deepEqual(reopened.restoredDrafts, [draft]);
+  const reIncluded = resumed.updateReplayPreview(target, reopened.id, [file]);
+  const projected = await resumed.replayDiff(target, reIncluded.id, file);
+  assert.equal(projected.afterHash, hashBytes(Buffer.from(partial)));
+  assert.equal(resumed.confirmReplay(target, reIncluded.id).restored, 1);
+  assert.equal(fs.readFileSync(path.join(source, file), 'utf8'), partial);
+  assert.equal(fs.readFileSync(path.join(source, conflictFile), 'utf8'), local);
+});
+
 for (const direction of ['undo', 'redo']) {
   test(`group ${direction} mixes conflict resolutions across files in one preview revision`, async (t) => {
     const { target, source, service, host, put } = fixture(t);

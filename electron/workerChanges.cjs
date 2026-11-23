@@ -673,13 +673,19 @@ function createWorkerChanges(profile, sandbox) {
     }
     const summary = { files: plan.files, selected: options.selection.size, ready: plan.journals.length };
     const writes = new Map(plan.writes.map((write) => [write.file, write]));
+    const excludedPatchWrites = new Map();
+    for (const file of options.patches.keys()) {
+      const write = previous?.writes.get(file) ?? previous?.excludedPatchWrites.get(file);
+      if (!writes.has(file) && write) excludedPatchWrites.set(file, write);
+    }
     const hunkCatalogs = new Map();
     for (const [file, catalog] of previous?.hunkCatalogs ?? []) {
-      if (sameReplayWrite(writes.get(file), previous.writes.get(file))) hunkCatalogs.set(file, catalog);
+      const previousWrite = previous.writes.get(file) ?? previous.excludedPatchWrites.get(file);
+      if (excludedPatchWrites.has(file) || sameReplayWrite(writes.get(file), previousWrite)) hunkCatalogs.set(file, catalog);
     }
     const preview = {
       ...options, id, fingerprint: replayFingerprint(plan), expires: now + REPLAY_PREVIEW_TTL,
-      writes, summary, hunkCatalogs,
+      writes, excludedPatchWrites, summary, hunkCatalogs,
     };
     replayPreviews.set(project.id, preview);
     return replayPreviewSummary(preview);
@@ -722,8 +728,8 @@ function createWorkerChanges(profile, sandbox) {
       const included = new Set(preview.includedFiles ?? preview.selectableFiles);
       const unavailable = new Set(preview.unavailableFiles);
       for (const [file, patch] of preview.patches) {
-        const write = preview.writes.get(file);
-        if (!write || !included.has(file)) continue;
+        const write = preview.writes.get(file) ?? preview.excludedPatchWrites.get(file);
+        if (!write) throw fail('workerChanges.historyPreviewStale', file);
         const before = preview.hunkCatalogs.get(file)?.snapshot ?? replayHost(write);
         const goal = write.readData();
         const selected = partialProjection(write, patch, before, goal);
@@ -776,6 +782,8 @@ function createWorkerChanges(profile, sandbox) {
       let recovered = origins.get(file);
       if (!selectableFiles.has(file)) continue;
       if (recovered) {
+        // The current journals determine what can be replayed in the other direction.
+        recovered = { ...recovered, opposite: recovered.before };
         try { verifyReplayRecovery(project, file, recovered); }
         catch (error) {
           if (error.reviewKey !== 'workerChanges.historyPreviewStale') throw error;
@@ -796,12 +804,28 @@ function createWorkerChanges(profile, sandbox) {
         if (wanted.has(file)) includedFiles.add(file);
       }
     }
+    const plan = (scope = includedFiles) => {
+      const base = loadBase(project);
+      return planReplay(project, base, scopedHistory(project, base), selection, direction, scope, rebased);
+    };
+    currentReplayPreview(project, fresh.id);
+    const candidateScope = new Set([...includedFiles, ...rebased.keys()]);
+    const candidates = new Map(plan(candidateScope).writes.map((write) => [write.file, write]));
+    for (const [file, recovered] of rebased) {
+      const write = candidates.get(file);
+      if (write?.recovered !== recovered || !write.oppositeBackup) continue;
+      const result = await mergeReplayText(recovered.original, recovered.before, write.oppositeBackup());
+      const updated = { ...recovered, opposite: result?.data ?? recovered.before, limited: recovered.limited || !result || Boolean(result.conflicts) };
+      const size = recoverySize(updated) - recoverySize(recovered);
+      if (updated.opposite.length > MAX_FILE || bytes + size > MAX_BATCH_BYTES) {
+        rebased.set(file, { ...recovered, limited: true });
+      } else {
+        rebased.set(file, updated);
+        bytes += size;
+      }
+    }
     currentReplayPreview(project, fresh.id);
     verifyScope();
-    const plan = () => {
-      const base = loadBase(project);
-      return planReplay(project, base, scopedHistory(project, base), selection, direction, includedFiles, rebased);
-    };
     let proposed = plan();
     const approved = new Map(proposed.writes.map(({ file, recovered }) => [file, recovered]));
     for (const [file, recovered] of rebased) {
