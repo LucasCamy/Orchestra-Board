@@ -6,6 +6,7 @@ const { diffPreview } = require('./diffPreview.cjs');
 const { exec } = require('./workerSandbox.cjs');
 const { validPath, checkedPath, readFileState, directoryIdentity, hashBytes, MAX_FILE, MAX_BATCH_BYTES, MAX_ENTRIES } = require('./workerChangePaths.cjs');
 const { workerUndoStore, fileParentIdentity, validJournalId } = require('./workerUndo.cjs');
+const { workerReplayDraftStore, draftItems } = require('./workerReplayDrafts.cjs');
 const { applyReplayLines, selectableReplayLines } = require('./workerReplayHunks.cjs');
 const { createInlineReview, validateInlineRanges, projectInlineLine } = require('./workerReplayInline.cjs');
 const { replayChanges, mergeReplayChanges, applyChanges: applyReplayChanges, MAX_CONFLICT_DETAILS } = require('./workerReplayMerge.cjs');
@@ -77,6 +78,7 @@ function scopeCollisions(paths) {
 function createWorkerChanges(profile, sandbox) {
   const storage = path.join(profile, 'worker-reviews');
   const undoStore = workerUndoStore(storage, MAX_SELECTION, fail);
+  const replayDraftStore = workerReplayDraftStore(storage);
   const inits = new Map();
   const reviews = new Map();
   const replayPreviews = new Map();
@@ -671,13 +673,19 @@ function createWorkerChanges(profile, sandbox) {
     }
     const summary = { files: plan.files, selected: options.selection.size, ready: plan.journals.length };
     const writes = new Map(plan.writes.map((write) => [write.file, write]));
+    const excludedPatchWrites = new Map();
+    for (const file of options.patches.keys()) {
+      const write = previous?.writes.get(file) ?? previous?.excludedPatchWrites.get(file);
+      if (!writes.has(file) && write) excludedPatchWrites.set(file, write);
+    }
     const hunkCatalogs = new Map();
     for (const [file, catalog] of previous?.hunkCatalogs ?? []) {
-      if (sameReplayWrite(writes.get(file), previous.writes.get(file))) hunkCatalogs.set(file, catalog);
+      const previousWrite = previous.writes.get(file) ?? previous.excludedPatchWrites.get(file);
+      if (excludedPatchWrites.has(file) || sameReplayWrite(writes.get(file), previousWrite)) hunkCatalogs.set(file, catalog);
     }
     const preview = {
       ...options, id, fingerprint: replayFingerprint(plan), expires: now + REPLAY_PREVIEW_TTL,
-      writes, summary, hunkCatalogs,
+      writes, excludedPatchWrites, summary, hunkCatalogs,
     };
     replayPreviews.set(project.id, preview);
     return replayPreviewSummary(preview);
@@ -700,6 +708,150 @@ function createWorkerChanges(profile, sandbox) {
     const plan = planReplay(project, base, history, selection, direction);
     const selectableFiles = new Set(plan.files.filter(({ effect }) => effect).map(({ path }) => path));
     return storeReplayPreview(project, plan, { direction, selection, root: firstJournal.root, selectableFiles, patches: new Map() });
+  }
+
+  function regularReplayVersion({ effect }, write) {
+    return hashBytes(Buffer.from(JSON.stringify([effect, write?.host, write?.state, write?.parent, write?.mode])));
+  }
+
+  function saveReplayDraft(project, id, input) {
+    const preview = findReplayPreview(project, id);
+    if (!preview) throw fail('workerChanges.historyPreviewStale');
+    try {
+      const allowed = new Map(replayPreviewSummary(preview).resolvableConflicts.flatMap(({ path, keys }) => keys.map((key) => [key, path])));
+      const drafts = draftItems(input?.items, allowed);
+      if (!drafts.length && input?.keep !== true) {
+        replayDraftStore.discard(project, preview);
+        return { saved: false };
+      }
+      const rebased = new Map(preview.rebased);
+      const included = new Set(preview.includedFiles ?? preview.selectableFiles);
+      const unavailable = new Set(preview.unavailableFiles);
+      for (const [file, patch] of preview.patches) {
+        const write = preview.writes.get(file) ?? preview.excludedPatchWrites.get(file);
+        if (!write) throw fail('workerChanges.historyPreviewStale', file);
+        const before = preview.hunkCatalogs.get(file)?.snapshot ?? replayHost(write);
+        const goal = write.readData();
+        const selected = partialProjection(write, patch, before, goal);
+        rebased.set(file, { origin: write.host, original: before, live: write.host, parent: write.parent, before, selected,
+          goal, opposite: write.oppositeBackup?.() ?? before, limited: false });
+      }
+      const regular = preview.summary.files.filter(({ path, effect }) => effect && included.has(path) && !rebased.has(path))
+        .map((row) => [row.path, regularReplayVersion(row, preview.writes.get(row.path))]);
+      replayDraftStore.save(project, preview, { drafts, rebased, regular, included: [...included], unavailable: [...unavailable],
+        selectable: [...preview.selectableFiles] });
+      return { saved: true };
+    } catch {
+      throw fail('workerChanges.historyConflictDraftSaveFailed');
+    }
+  }
+
+  async function openReplayPreview(project, direction, items, verifyScope = () => {}) {
+    const fresh = previewReplay(project, direction, items);
+    const previous = currentReplayPreview(project, fresh.id);
+    const { selection, root } = previous;
+    const history = scopedHistory(project, loadBase(project));
+    const entries = history.filter((batch) => selection.has(batch.id)).flatMap((batch) => batch[direction].entries);
+    const allowedPaths = new Set(entries.map(({ file }) => file));
+    let snapshot;
+    try { snapshot = replayDraftStore.load(project, previous, allowedPaths); }
+    catch { return { ...fresh, draftUnavailable: true }; }
+    if (!snapshot) return fresh;
+
+    const selectableFiles = new Set(snapshot.selectable);
+    const includedFiles = new Set();
+    const unavailableFiles = new Set(snapshot.unavailable);
+    const rows = new Map(fresh.files.map((row) => [row.path, row]));
+    const regular = new Map(snapshot.regular);
+    const wanted = new Set(snapshot.included);
+    const rebased = new Map();
+    const selectionConflicts = new Map();
+    for (const file of wanted) {
+      const row = rows.get(file);
+      if (selectableFiles.has(file) && !unavailableFiles.has(file) && !snapshot.rebased.has(file) && row?.effect &&
+          regular.get(file) === regularReplayVersion(row, previous.writes.get(file))) includedFiles.add(file);
+    }
+    let bytes = 0;
+    const origins = new Map();
+    for (const { file, change } of entries) {
+      if (!change?.after || !snapshot.rebased.has(file)) continue;
+      const candidate = snapshot.rebased.get(file);
+      if (candidate.parent === change.parent && sameHostState(candidate.origin, change.after)) origins.set(file, candidate);
+    }
+    for (const [file, saved] of snapshot.rebased) {
+      let recovered = origins.get(file);
+      if (!selectableFiles.has(file)) continue;
+      if (recovered) {
+        // The current journals determine what can be replayed in the other direction.
+        recovered = { ...recovered, opposite: recovered.before };
+        try { verifyReplayRecovery(project, file, recovered); }
+        catch (error) {
+          if (error.reviewKey !== 'workerChanges.historyPreviewStale') throw error;
+          const write = { recovered, host: recovered.live, state: recovered.live, parent: recovered.parent, readData: () => saved.goal };
+          const result = await recoverReplayWrite(project, previous, file, write);
+          recovered = result?.recovered;
+        }
+      }
+      if (!recovered || bytes + recoverySize(recovered) > MAX_BATCH_BYTES) {
+        unavailableFiles.add(file);
+        continue;
+      }
+      bytes += recoverySize(recovered);
+      rebased.set(file, recovered);
+      if (recovered.selected.equals(recovered.before)) unavailableFiles.add(file);
+      else {
+        unavailableFiles.delete(file);
+        if (wanted.has(file)) includedFiles.add(file);
+      }
+    }
+    const plan = (scope = includedFiles) => {
+      const base = loadBase(project);
+      return planReplay(project, base, scopedHistory(project, base), selection, direction, scope, rebased);
+    };
+    currentReplayPreview(project, fresh.id);
+    const candidateScope = new Set([...includedFiles, ...rebased.keys()]);
+    const candidates = new Map(plan(candidateScope).writes.map((write) => [write.file, write]));
+    for (const [file, recovered] of rebased) {
+      const write = candidates.get(file);
+      if (write?.recovered !== recovered || !write.oppositeBackup) continue;
+      const result = await mergeReplayText(recovered.original, recovered.before, write.oppositeBackup());
+      const updated = { ...recovered, opposite: result?.data ?? recovered.before, limited: recovered.limited || !result || Boolean(result.conflicts) };
+      const size = recoverySize(updated) - recoverySize(recovered);
+      if (updated.opposite.length > MAX_FILE || bytes + size > MAX_BATCH_BYTES) {
+        rebased.set(file, { ...recovered, limited: true });
+      } else {
+        rebased.set(file, updated);
+        bytes += size;
+      }
+    }
+    currentReplayPreview(project, fresh.id);
+    verifyScope();
+    let proposed = plan();
+    const approved = new Map(proposed.writes.map(({ file, recovered }) => [file, recovered]));
+    for (const [file, recovered] of rebased) {
+      try {
+        verifyReplayRecovery(project, file, recovered);
+        if (!includedFiles.has(file) || approved.get(file) === recovered) continue;
+      } catch (error) {
+        if (error.reviewKey !== 'workerChanges.historyPreviewStale') throw error;
+      }
+      rebased.delete(file);
+      unavailableFiles.add(file);
+      includedFiles.delete(file);
+    }
+    proposed = plan();
+    for (const [file, { conflictState }] of rebased) {
+      if (conflictState?.regions.size) selectionConflicts.set(file, { count: conflictState.regions.size, details: [] });
+    }
+    const next = storeReplayPreview(project, proposed, {
+      direction, selection, root, selectableFiles, includedFiles, patches: new Map(), rebased, selectionConflicts, unavailableFiles,
+    });
+    const active = new Map(next.resolvableConflicts.flatMap(({ path, keys }) => keys.map((key) => [key, path])));
+    const restoredDrafts = snapshot.drafts.filter(({ file, key }) => active.get(key) === file);
+    for (const file of selectableFiles) if (!rows.has(file)) rows.set(file, { path: file, effect: null, skipped: null });
+    for (const row of next.files) rows.set(row.path, row);
+    return { ...next, files: [...rows.values()], selectablePaths: [...selectableFiles], included: [...includedFiles],
+      restoredDrafts, droppedDrafts: snapshot.drafts.length - restoredDrafts.length };
   }
 
   function findReplayPreview(project, id) {
@@ -1279,12 +1431,13 @@ function createWorkerChanges(profile, sandbox) {
     applyPartialSelections(project, base, plan, patches);
     commitReplay(project, base, plan);
     replayPreviews.delete(project.id);
+    replayDraftStore.discard(project, preview);
     const skipped = [...new Set([...plan.skipped, ...(unavailableFiles ?? [])])];
     return { ...replayResult(plan, direction), skipped, batches: plan.journals.length };
   }
 
   return {
-    initialize, review, diff, apply, undoStatus, previewReplay, updateReplayPreview, refreshReplayPreview,
+    initialize, review, diff, apply, undoStatus, previewReplay, openReplayPreview, saveReplayDraft, updateReplayPreview, refreshReplayPreview,
     replayDiff, replayConflicts, resolveReplayConflict, resolveReplayConflictBatch, replayInline, updateReplayInlineBatch, confirmReplay,
     updateReplayInline: (project, id, item) => updateReplayInlineBatch(project, id, [item]),
     updateReplayHunks: (project, id, item) => updateReplaySelection(project, id, item, true),

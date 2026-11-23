@@ -544,6 +544,12 @@ module.exports = async ({ evaluate, until, data, errors }) => {
   await click(`${batchActions}:first-child:enabled`);
   await openBatchConflict(batchFiles[2]);
   assert.equal(await evaluate("document.querySelector('.worker-replay-conflict-editor textarea').value"), 'manual');
+  await until("document.querySelector('.worker-replay-draft-status')?.textContent.includes('Conflict draft saved')");
+  await click('.worker-history-preview .dialog-actions button:first-child');
+  await click('.worker-history-preview-undo:enabled');
+  await until("document.querySelector('.worker-history-preview')?.textContent.includes('Restored 3 saved conflict draft')");
+  await openBatchConflict(batchFiles[2]);
+  assert.equal(await evaluate("document.querySelector('.worker-replay-conflict-editor textarea').value"), 'manual');
   assert.equal(await evaluate("document.querySelector('.worker-history-confirm-group').disabled"), true);
   await click(`${updateBatch}:enabled`);
   await until("document.querySelector('.worker-replay-diff .changes-code')?.textContent.includes('+manual header')");

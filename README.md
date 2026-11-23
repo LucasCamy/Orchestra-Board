@@ -492,6 +492,8 @@ If the preview becomes stale, use **Refresh preview** to review the same batches
 
 Enable **Resolve conflicts in batch** to select individual conflicts across files, a file’s conflicts, or all available conflicts. To mix resolutions, choose **Keep local text**, **Use selected text**, or **Edit manually** for each conflict and then choose **Update diff** once. The two batch shortcuts apply the same choice to the whole selection. Review the combined diff before confirming the operation.
 
+The board saves batch conflict drafts in the local app profile. Reopen the same history batches in the same direction to resume. The board checks each saved fragment against the current files and restores choices it can still match. Review and recalculate the combined diff before confirming the changes.
+
 Later edits are kept and listed after each operation. Skipped files stay available for another attempt, and independent files can still be processed in other batches. History is available after restarting Orchestra, even if the worker is offline. A new application clears pending redo actions and keeps earlier applied batches available to undo. The history excludes AGENTS.md.
 
 Review supports regular files up to 2 MB and applies up to 200 files or 20 MB at a time. For copies created before review tracking, the first review shows differences against the current original folder. It omits historical deletions because the initial worker contents are unknown.
