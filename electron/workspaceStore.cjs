@@ -98,6 +98,7 @@ function sanitizeLink(data = {}) {
     mode: ['delegate', 'terminal', 'note', 'visual', 'browser'].includes(data.mode) ? data.mode : 'relay',
     bidirectional: data.bidirectional === true,
     prompt: typeof data.prompt === 'string' ? data.prompt.slice(0, MAX_TEXT) : '', // vide = pas encore configuré
+    reversePrompt: typeof data.reversePrompt === 'string' ? data.reversePrompt.slice(0, MAX_TEXT) : '',
     maxTurns: Math.round(clamp(data.maxTurns, 1, MAX_TURNS, 3)),
     enabled: data.enabled !== false,
     review: data.review === true, // Transmission : message à valider avant l'envoi

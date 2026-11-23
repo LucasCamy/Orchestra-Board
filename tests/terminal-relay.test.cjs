@@ -63,3 +63,27 @@ test('legacy links do not auto-forward terminal output and native hooks still re
   time.tick(relay.READ_DELAY);
   assert.equal(relay.pendingList()[0].text, 'Read: native reply');
 });
+
+test('bidirectional relay uses reversePrompt when target finishes and relays back to source', () => {
+  const time = clock();
+  const status = load('agentStatus.cjs', {}, time);
+  const relay = load('linkRelay.cjs', { './i18n.cjs': i18n }, time);
+  const written = [];
+  relay.init({ status: (id) => status.info(id)?.status, write: (id, text) => written.push([id, text]), arm: status.arm });
+  status.register('architect', 'hooks');
+  status.register('lead', 'hooks');
+  relay.setLinks({ boards: [{ edges: [{
+    id: 'link-arch-lead', source: 'architect', target: 'lead',
+    data: {
+      mode: 'relay', enabled: true, maxTurns: 5, bidirectional: true, review: false,
+      prompt: 'Directive: {response}',
+      reversePrompt: 'Report back: {response}',
+    },
+  }] }] });
+
+  // 1. Lead finishes its turn -> relays back to architect using reversePrompt
+  relay.onStop('lead', { last_assistant_message: 'Tasks complete with 0 errors.' });
+  time.tick(relay.READ_DELAY + 10);
+  time.tick(250); // ENTER_DELAY
+  assert.ok(written.some(([target, text]) => target === 'architect' && text.includes('Report back: Tasks complete with 0 errors.')));
+});

@@ -151,6 +151,23 @@ export default function LinkPanel({ edge, nodes, event, onChange, onSwap, onDele
           <p className="hint">
             <code>{t('link.responseToken')}</code> {t('link.promptHint')}
           </p>
+          {link.bidirectional && (
+            <>
+              <label className="link-field">
+                {t('link.reversePrompt')}
+                <textarea
+                  className="thin-scrollbar"
+                  rows={3}
+                  value={link.reversePrompt || ''}
+                  placeholder={t('link.reversePromptPlaceholder')}
+                  onChange={(e) => onChange({ reversePrompt: e.target.value })}
+                />
+              </label>
+              <p className="hint">
+                <code>{t('link.responseToken')}</code> {t('link.reversePromptHint')}
+              </p>
+            </>
+          )}
           <label className="checkbox" title={t('link.reviewHint')}>
             <input type="checkbox" checked={link.review} onChange={(e) => onChange({ review: e.target.checked })} />
             {t('link.review')}

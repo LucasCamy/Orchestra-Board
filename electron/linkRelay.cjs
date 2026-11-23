@@ -60,7 +60,16 @@ function setLinks(workspace) {
     for (const edge of board.edges) {
       if (edge.data.mode !== 'relay') continue;
       add({ ...edge.data, key: edge.id, id: edge.id, source: edge.source, target: edge.target });
-      if (edge.data.bidirectional) add({ ...edge.data, key: `${edge.id}:r`, id: edge.id, source: edge.target, target: edge.source });
+      if (edge.data.bidirectional) {
+        add({
+          ...edge.data,
+          key: `${edge.id}:r`,
+          id: edge.id,
+          source: edge.target,
+          target: edge.source,
+          prompt: (typeof edge.data.reversePrompt === 'string' && edge.data.reversePrompt.trim()) ? edge.data.reversePrompt : edge.data.prompt,
+        });
+      }
     }
   }
   // Brouillon d'un lien supprimé, retourné ou passé en Délégation : abandonné.
