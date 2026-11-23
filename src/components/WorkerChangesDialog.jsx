@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FileDiff, Redo2, RefreshCw, Undo2, X } from 'lucide-react';
 import useT from '../hooks/useT.js';
@@ -406,8 +406,9 @@ function ReplayPreview({ boardId, target, targetPath, preview, onCancel, onConfi
   const t = useT();
   const api = window.workerChanges;
   const { action } = preview;
-  const originalFiles = useMemo(() => new Set(preview.files.filter(({ effect }) => effect).map(({ path }) => path)), [preview.files]);
-  const [revision, setRevision] = useState(() => ({ ...preview, included: originalFiles }));
+  const originalFiles = useMemo(() => new Set(preview.selectablePaths ?? preview.files.filter(({ effect }) => effect).map(({ path }) => path)),
+    [preview.files, preview.selectablePaths]);
+  const [revision, setRevision] = useState(() => ({ ...preview, included: preview.included ? new Set(preview.included) : originalFiles }));
   const [pendingSelection, setPendingSelection] = useState(null);
   const [selectionError, setSelectionError] = useState(null);
   const [selectionNotice, setSelectionNotice] = useState(null);
@@ -415,8 +416,15 @@ function ReplayPreview({ boardId, target, targetPath, preview, onCancel, onConfi
   const [loaded, setLoaded] = useState(null);
   const [conflictLoaded, setConflictLoaded] = useState(null);
   const [manualDraft, setManualDraft] = useState(null);
-  const [conflictBatch, setConflictBatch] = useState(false);
-  const [batchChoices, setBatchChoices] = useState(() => new Map());
+  const [conflictBatch, setConflictBatch] = useState(Boolean(preview.restoredDrafts?.length));
+  const [batchChoices, setBatchChoices] = useState(() => new Map((preview.restoredDrafts ?? []).map(({ key, choice, content }) => [
+    key, choice === null ? null : { strategy: choice, ...(choice === 'manual' && makeDraft(content)) },
+  ])));
+  const [draftTouched, setDraftTouched] = useState(false);
+  const [keepDraft, setKeepDraft] = useState(Boolean(preview.restoredDrafts));
+  const [draftStatus, setDraftStatus] = useState(null);
+  const pendingDraft = useRef(null);
+  const draftSave = useRef(0);
   const [inlineBatch, setInlineBatch] = useState(false);
   const [inlineDrafts, setInlineDrafts] = useState(() => new Map());
   const selectionRequest = useRef(false);
@@ -427,7 +435,8 @@ function ReplayPreview({ boardId, target, targetPath, preview, onCancel, onConfi
   const lineSelection = useMemo(() => new Map(lines.map((file) => [file.path, file])), [lines]);
   const conflictsByPath = useMemo(() => new Map(selectionConflicts.map((file) => [file.path, file])), [selectionConflicts]);
   const conflictKeysByPath = useMemo(() => new Map(resolvableConflicts.map(({ path, keys }) => [path, keys])), [resolvableConflicts]);
-  const batchItems = [...conflictKeysByPath].flatMap(([file, keys]) => keys.filter((key) => batchChoices.has(key)).map((key) => ({ file, key })));
+  const batchItems = useMemo(() => [...conflictKeysByPath].flatMap(([file, keys]) => keys.filter((key) => batchChoices.has(key))
+    .map((key) => ({ file, key }))), [conflictKeysByPath, batchChoices]);
   const batchFileCount = new Set(batchItems.map(({ file }) => file)).size;
   const batchHasChoices = batchItems.some(({ key }) => batchChoices.get(key));
   const batchReadyCount = batchItems.filter(({ key }) => {
@@ -446,6 +455,32 @@ function ReplayPreview({ boardId, target, targetPath, preview, onCancel, onConfi
   const selectionStale = Boolean(selectionError?.stale);
   const stale = Boolean(result?.stale || selectionStale);
   const staged = [...inlineDrafts.values()].reduce((count, lines) => count + lines.size, 0);
+
+  const persistDraft = useCallback(async (snapshot, feedback = true) => {
+    if (!snapshot) return;
+    pendingDraft.current = null;
+    const request = ++draftSave.current;
+    const result = await api.saveReplayDraft(boardId, target, snapshot.id, snapshot.data).catch(() => ({ error: true }));
+    if (!feedback || request !== draftSave.current || pendingDraft.current) return;
+    if (result.error) pendingDraft.current = snapshot;
+    setDraftStatus(result.error ? 'error' : result.saved ? 'saved' : null);
+  }, [api, boardId, target]);
+
+  useLayoutEffect(() => {
+    if (!draftTouched) return undefined;
+    const items = batchItems.map(({ file, key }) => {
+      const choice = batchChoices.get(key);
+      return { file, key, choice: choice?.strategy ?? null, ...(choice?.strategy === 'manual' && { content: choice.text }) };
+    });
+    const snapshot = { id, data: { items, keep: keepDraft } };
+    pendingDraft.current = snapshot;
+    setDraftStatus('saving');
+    if (updating) return undefined;
+    const timer = setTimeout(() => { void persistDraft(snapshot); }, 250);
+    return () => clearTimeout(timer);
+  }, [batchChoices, batchItems, draftTouched, id, keepDraft, persistDraft, updating]);
+
+  useEffect(() => () => { void persistDraft(pendingDraft.current, false); }, [persistDraft]);
 
   useEffect(() => {
     if (!showDiff || updating || selectionStale) return undefined;
@@ -529,6 +564,7 @@ function ReplayPreview({ boardId, target, targetPath, preview, onCancel, onConfi
     if (next && strategy === 'manual') setManualDraft(null);
   };
   const selectConflictKeys = (keys, checked) => {
+    setDraftTouched(true);
     setBatchChoices((previous) => {
       const next = new Map(previous);
       for (const key of keys) {
@@ -539,6 +575,7 @@ function ReplayPreview({ boardId, target, targetPath, preview, onCancel, onConfi
     });
   };
   const stageConflictChoice = (key, choice) => {
+    setDraftTouched(true);
     setBatchChoices((previous) => new Map(previous).set(key, choice));
   };
   const resolveConflictBatch = async (strategy) => {
@@ -549,6 +586,8 @@ function ReplayPreview({ boardId, target, targetPath, preview, onCancel, onConfi
     const next = await revisePreview(included,
       () => api.resolveReplayConflictBatch(boardId, target, id, batch));
     if (!next) return;
+    setDraftTouched(true);
+    setKeepDraft(true);
     setBatchChoices(new Map());
     setSelectionNotice(t('workerChanges.historyConflictBatchResolved', { n: batchItems.length, files: batchFileCount }));
   };
@@ -650,7 +689,7 @@ function ReplayPreview({ boardId, target, targetPath, preview, onCancel, onConfi
               {t('workerChanges.historyConflictBatchAll')}
             </button>
             <button type="button" className="text-button worker-replay-conflict-batch-clear" disabled={updating || !batchItems.length}
-              onClick={() => setBatchChoices(new Map())}>{t('workerChanges.historyConflictBatchClear')}</button>
+              onClick={() => { setDraftTouched(true); setBatchChoices(new Map()); }}>{t('workerChanges.historyConflictBatchClear')}</button>
             <button type="button" className="text-button worker-replay-conflict-batch-local"
               disabled={updating || stale || Boolean(manualDraft) || !batchItems.length || batchHasChoices}
               onClick={() => resolveConflictBatch('local')}>{t('workerChanges.historyConflictBatchLocal')}</button>
@@ -667,6 +706,17 @@ function ReplayPreview({ boardId, target, targetPath, preview, onCancel, onConfi
         {selectionError.error}{selectionError.file && <> <code>{selectionError.file}</code></>}
       </p>}
       {selectionNotice && <p className="hint worker-replay-summary" role="status">{selectionNotice}</p>}
+      {preview.restoredDrafts?.length > 0 && <p className="hint worker-replay-summary" role="status">
+        {t('workerChanges.historyConflictDraftRestored', { n: preview.restoredDrafts.length })}</p>}
+      {preview.droppedDrafts > 0 && <p className="hint worker-replay-summary" role="status">
+        {t('workerChanges.historyConflictDraftDropped', { n: preview.droppedDrafts })}</p>}
+      {preview.draftUnavailable && <p className="form-error worker-replay-summary" role="alert">{t('workerChanges.historyConflictDraftUnavailable')}</p>}
+      {draftStatus === 'error' ? <p className="form-error worker-replay-summary" role="alert">
+        {t('workerChanges.historyConflictDraftSaveFailed')}{' '}
+        <button type="button" className="text-button" disabled={updating} onClick={() => persistDraft(pendingDraft.current)}>{t('workerChanges.historyConflictDraftRetry')}</button>
+      </p> : draftStatus && <p className="hint worker-replay-summary worker-replay-draft-status" role="status">
+        {t(draftStatus === 'saving' ? 'workerChanges.historyConflictDraftSaving' : 'workerChanges.historyConflictDraftSaved')}
+      </p>}
       {manualDraft && <p className="hint worker-replay-summary" role="status">{t('workerChanges.historyConflictDraftPending', { path: manualDraft.path })}</p>}
       <div className={`worker-replay-body${opened ? ' has-diff' : ''}`}>
         <ul className="worker-replay-files thin-scrollbar" tabIndex={0} aria-label={t('workerChanges.historyPreviewFiles')}>

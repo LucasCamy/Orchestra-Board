@@ -1460,6 +1460,56 @@ test('replay resolves multiple conflicts in a file with no compatible selections
   assert.equal(read('AGENTS.md'), 'rules\n');
 });
 
+test('saved replay drafts survive a restart and restore only fragments that still match', async (t) => {
+  const { target, source, service, restart, host, put } = fixture(t);
+  const file = 'settings.js';
+  const text = (mode, count, extra) => `mode=${mode} count=${count} extra=${extra}\r\nend\r\n`;
+  const read = (name = file) => fs.readFileSync(path.join(source, name), 'utf8');
+  host('AGENTS.md', 'rules\n');
+  host(file, text('editor', '1111', 'old'));
+  put(file, read());
+  await service.initialize(target);
+  put(file, text('original', '2222', 'new'));
+  await applyWorkerBatch(service, target);
+  const selection = replaySelection(service.undoStatus(target).batches, 'undo');
+  const preview = service.previewReplay(target, 'undo', selection);
+  const original = await service.replayDiff(target, preview.id, file);
+  const line = original.hunks[0].rows.find(({ inline }) => inline).index;
+  const { parts } = service.replayInline(target, preview.id, { file, line });
+  const ranges = parts.filter(({ text }) => ['editor', 'original', '1111', '2222'].includes(text))
+    .map(({ index, text }) => ({ index, start: 0, end: text.length }));
+  host(file, text('worker', '3333', 'new'));
+  const refreshed = await service.refreshReplayPreview(target, preview.id, [{ file, line, ranges }]);
+  const [mode, count] = service.replayConflicts(target, refreshed.id, file).regions;
+  const draft = [
+    { file, key: mode.key, choice: 'selected' },
+    { file, key: count.key, choice: 'manual', content: 'valor🌱' },
+  ];
+  assert.throws(() => service.saveReplayDraft(target, refreshed.id, { items: [{ ...draft[0], file: 'nested/aGeNtS.md' }] }),
+    { reviewKey: 'workerChanges.historyConflictDraftSaveFailed' });
+  assert.deepEqual(service.saveReplayDraft(target, refreshed.id, { items: draft }), { saved: true });
+  const note = '// local note\r\n';
+  const resumed = restart();
+  host(file, text('private', '3333', 'new') + note);
+  host('AGENTS.md', 'architect update\n');
+  const reopened = await resumed.openReplayPreview(target, 'undo', selection);
+  assert.deepEqual(reopened.restoredDrafts, [draft[1]]);
+  assert.equal(reopened.droppedDrafts, 1);
+  assert.equal(reopened.ready, 0);
+  assert.deepEqual(resumed.replayConflicts(target, reopened.id, file).regions.map(({ key }) => key), [count.key]);
+  const combined = await resumed.resolveReplayConflictBatch(target, reopened.id, { items: [
+    { file, key: count.key, strategy: 'manual', content: draft[1].content },
+  ] });
+  const expected = text('private', 'valor🌱', 'new') + note;
+  assert.equal((await resumed.replayDiff(target, combined.id, file)).afterHash, hashBytes(Buffer.from(expected)));
+  assert.equal(read(), text('private', '3333', 'new') + note);
+  assert.equal(resumed.confirmReplay(target, combined.id).restored, 1);
+  assert.equal(read(), expected);
+  assert.equal(read('AGENTS.md'), 'architect update\n');
+  const folder = path.join(source, 'profile', 'worker-reviews', 'replay-drafts');
+  assert.deepEqual(fs.readdirSync(folder), []);
+});
+
 for (const direction of ['undo', 'redo']) {
   test(`group ${direction} mixes conflict resolutions across files in one preview revision`, async (t) => {
     const { target, source, service, host, put } = fixture(t);

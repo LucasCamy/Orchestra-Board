@@ -388,13 +388,16 @@ ipcMain.handle('workerChanges:targets', (event, boardId) => {
   if (!isBoardFrame(event) || workspaceStore.get().activeBoardId !== boardId) return { error: t('workerChanges.scope') };
   return { targets: reviewTargets(boardId).map(({ id, source }) => ({ id, source })) };
 });
-for (const action of ['review', 'diff', 'apply', 'undoStatus', 'undo', 'redo', 'previewReplay', 'updateReplayPreview', 'refreshReplayPreview',
+for (const action of ['review', 'diff', 'apply', 'undoStatus', 'undo', 'redo', 'previewReplay', 'saveReplayDraft', 'updateReplayPreview', 'refreshReplayPreview',
   'updateReplayHunks', 'updateReplayLines', 'replayDiff', 'replayConflicts', 'resolveReplayConflict', 'resolveReplayConflictBatch',
   'replayInline', 'updateReplayInline', 'updateReplayInlineBatch', 'confirmReplay']) {
   ipcMain.handle('workerChanges:' + action, async (event, boardId, targetId, snapshot, selection) => {
     if (!isBoardFrame(event)) return { error: t('workerChanges.scope') };
     try {
       const project = resolveReviewTarget(boardId, targetId);
+      if (action === 'previewReplay') {
+        return await workerChanges.openReplayPreview(project, snapshot, selection, () => resolveReviewTarget(boardId, targetId));
+      }
       if (['apply', 'refreshReplayPreview', 'resolveReplayConflict', 'resolveReplayConflictBatch'].includes(action)) {
         return await workerChanges[action](project, snapshot, selection, () => resolveReviewTarget(boardId, targetId));
       }
@@ -405,6 +408,7 @@ for (const action of ['review', 'diff', 'apply', 'undoStatus', 'undo', 'redo', '
       const fallback = {
         undo: 'workerChanges.undoFailed', redo: 'workerChanges.redoFailed', undoStatus: 'workerChanges.historyFailed',
         previewReplay: 'workerChanges.historyPreviewFailed', updateReplayPreview: 'workerChanges.historyPreviewFailed',
+        saveReplayDraft: 'workerChanges.historyConflictDraftSaveFailed',
         refreshReplayPreview: 'workerChanges.historyPreviewFailed',
         updateReplayHunks: 'workerChanges.historyPreviewFailed',
         updateReplayLines: 'workerChanges.historyPreviewFailed',

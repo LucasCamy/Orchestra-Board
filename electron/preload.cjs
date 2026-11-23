@@ -99,6 +99,7 @@ contextBridge.exposeInMainWorld('workerChanges', {
   undo: (boardId, targetId, applicationId, batchId) => ipcRenderer.invoke('workerChanges:undo', boardId, targetId, applicationId, batchId),
   redo: (boardId, targetId, applicationId, batchId) => ipcRenderer.invoke('workerChanges:redo', boardId, targetId, applicationId, batchId),
   previewReplay: (boardId, targetId, direction, selection) => ipcRenderer.invoke('workerChanges:previewReplay', boardId, targetId, direction, selection),
+  saveReplayDraft: (boardId, targetId, id, draft) => ipcRenderer.invoke('workerChanges:saveReplayDraft', boardId, targetId, id, draft),
   updateReplayPreview: (boardId, targetId, id, files) => ipcRenderer.invoke('workerChanges:updateReplayPreview', boardId, targetId, id, files),
   refreshReplayPreview: (boardId, targetId, id, drafts) => ipcRenderer.invoke('workerChanges:refreshReplayPreview', boardId, targetId, id, drafts),
   updateReplayHunks: (boardId, targetId, id, file, indexes) => ipcRenderer.invoke('workerChanges:updateReplayHunks', boardId, targetId, id, { file, indexes }),
