@@ -111,7 +111,7 @@ export default function FloatingEdge({ id, source, target, data, style }) {
   const turns = event && typeof event.turns === 'number' ? event.turns : 0;
   // Dans un lien à double sens, le message peut aller vers la source : event.to dit vers qui.
   const toNode = (draft?.to ?? event?.to) === source ? sourceNode : targetNode;
-  const targetName = toNode.data?.label || (toNode.type === 'note' ? t('note.defaultName') : agentById(toNode.data?.agentId).name);
+  const targetName = toNode.data?.label || (toNode.type === 'note' ? t('note.defaultName') : toNode.type === 'interactiveBrowser' ? t('dock.browser') : toNode.type === 'visualTest' ? t('tool.visualTest') : agentById(toNode.data?.agentId).name);
 
   // Clic sur l'étiquette = ce lien seul choisi, son panneau s'ouvre.
   const open = () => {

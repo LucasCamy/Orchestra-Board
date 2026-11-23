@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NodeResizer, useReactFlow } from '@xyflow/react';
+import { Handle, NodeResizer, Position, useReactFlow } from '@xyflow/react';
 import { MonitorCheck, Play, Plus, X } from 'lucide-react';
 import useT from '../hooks/useT.js';
 
@@ -85,6 +85,8 @@ export default function VisualTestNode({ id, data, selected }) {
   return (
     <>
       <NodeResizer minWidth={420} minHeight={320} isVisible={selected} handleClassName="resize-handle" lineClassName="resize-line" />
+      <Handle type="target" position={Position.Left} />
+      <Handle type="source" position={Position.Right} />
       <div className={`visual-test-node panel-node ${selected ? 'selected' : ''}`}>
         <header className="visual-test-header">
           <MonitorCheck size={17} aria-hidden="true" />

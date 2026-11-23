@@ -142,6 +142,7 @@ function recipes() {
         link('frontend-qa', 'frontend', 'qa', 'delegate', { bidirectional: true }),
         link('qa-visual', 'qa', 'visual', 'visual'),
         link('qa-browser', 'qa', 'browser', 'browser'),
+        link('linear-architect', 'linear', 'architect', 'linear'),
         link('linear-lead', 'linear', 'lead', 'linear'),
         link('architect-term', 'architect', 'architect-terminal', 'terminal'),
         link('architect-brow', 'architect', 'architect-browser', 'browser'),
