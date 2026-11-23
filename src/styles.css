@@ -394,7 +394,49 @@ button { font: inherit; color: inherit; }
   to { transform: translate(0, 0); }
 }
 .linear-issue-meta, .linear-issue-footer { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.linear-issue-tags { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .linear-issue-id { overflow: hidden; color: var(--text-muted); font: 12px var(--font-mono); text-overflow: ellipsis; }
+.linear-issue-parent {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+  color: var(--accent);
+  font: 11px var(--font-mono);
+  white-space: nowrap;
+}
+.linear-issue-scope, .linear-state-pill {
+  overflow: hidden;
+  max-width: 130px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.linear-issue.is-subissue {
+  border-left: 3px solid color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+.linear-board-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 200px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+.linear-board-search input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
 .linear-issue h4 {
   display: -webkit-box;
   overflow: hidden;
@@ -451,7 +493,7 @@ button { font: inherit; color: inherit; }
   inset: 14px auto 14px 62px;
   display: flex;
   flex-direction: column;
-  width: min(350px, calc(100% - 76px));
+  width: min(390px, calc(100% - 76px));
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
@@ -460,6 +502,91 @@ button { font: inherit; color: inherit; }
 .linear-drawer-header { gap: 8px; }
 .linear-drawer-header > .linear-logo { color: var(--accent); }
 .linear-drawer-header h2 { flex: 1; }
+.linear-drawer-controls {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-2) 45%, var(--surface));
+}
+.linear-drawer-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+}
+.linear-drawer-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
+.linear-drawer-search select {
+  max-width: 120px;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 11px;
+}
+.linear-drawer-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+.linear-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 550;
+  cursor: pointer;
+}
+.linear-tab.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--text);
+}
+.linear-tab-count {
+  font: 10px var(--font-mono);
+  opacity: 0.85;
+}
+.linear-drawer-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-2) 55%, var(--surface));
+}
+.linear-drawer-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  user-select: none;
+}
+.linear-drawer-group-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 8px 8px;
+}
 .linear-drawer-list { flex: 1; min-height: 0; overflow: auto; padding: 12px 14px; overscroll-behavior: contain; }
 .linear-drawer-footer { padding: 12px 14px; border-top: 1px solid var(--border); }
 

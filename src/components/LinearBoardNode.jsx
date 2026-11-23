@@ -1,11 +1,11 @@
-import { Component, createRef, useState } from 'react';
+import { Component, createRef, useMemo, useState } from 'react';
 import { Handle, Position, useReactFlow } from '@xyflow/react';
-import { RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import { LINEAR_ISSUE_DRAG, LINEAR_STATUSES, linearScopeId, sanitizeLinearBoard } from '../../electron/linearModel.mjs';
 import { useBoard } from '../context/BoardContext.jsx';
 import useLinearIssues from '../hooks/useLinearIssues.js';
 import useT from '../hooks/useT.js';
-import { LinearFeedback, LinearIssueCard } from './LinearIssues.jsx';
+import { LinearFeedback, LinearIssueCard, sortIssuesByHierarchy } from './LinearIssues.jsx';
 import LinearLogo from './LinearLogo.jsx';
 
 const EMPTY_COLUMNS = Object.fromEntries(LINEAR_STATUSES.map((status) => [status, []]));
@@ -91,11 +91,26 @@ function LinearBoardContent({ id, data, onSave }) {
   const { boardId, prepareLinearMove, onOpenLinearSettings } = useBoard();
   const { snapshot, error, loading, refresh } = useLinearIssues(data);
   const [filters, setFilters] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [dragging, setDragging] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
   const [moving, setMoving] = useState(false);
   const [moveError, setMoveError] = useState(null);
-  const columns = snapshot?.columns ?? EMPTY_COLUMNS;
+  const rawColumns = snapshot?.columns ?? EMPTY_COLUMNS;
+  const columns = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return Object.fromEntries(LINEAR_STATUSES.map((status) => {
+      const list = (rawColumns[status] ?? []).filter((issue) => {
+        if (!q) return true;
+        return issue.identifier.toLowerCase().includes(q) ||
+          issue.title.toLowerCase().includes(q) ||
+          (issue.parent?.identifier ?? '').toLowerCase().includes(q) ||
+          (issue.projectName ?? '').toLowerCase().includes(q) ||
+          (issue.assignee?.name ?? '').toLowerCase().includes(q);
+      });
+      return [status, sortIssuesByHierarchy(list)];
+    }));
+  }, [rawColumns, searchQuery]);
 
   function onDrag(issue) {
     setDragging(issue);
@@ -121,6 +136,15 @@ function LinearBoardContent({ id, data, onSave }) {
       <div className="linear-board-heading">
         {snapshot?.title && <span>{t('linear.boardTitle')}</span>}
         <h2 title={snapshot?.title}>{snapshot?.title || t('linear.boardTitle')}</h2>
+      </div>
+      <div className="linear-board-search nodrag nopan">
+        <Search size={14} aria-hidden="true" />
+        <input
+          type="search"
+          value={searchQuery}
+          placeholder="Filtrar issues..."
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
       </div>
       <div className="linear-header-actions nodrag nopan">
         <button type="button" className="icon-button" title={t('linear.refresh')} aria-label={t('linear.refresh')} disabled={loading}

@@ -15,25 +15,70 @@ function Assignee({ assignee }) {
   </span>;
 }
 
+export function sortIssuesByHierarchy(issues) {
+  if (!Array.isArray(issues) || issues.length <= 1) return issues || [];
+  const byIdentifier = new Map(issues.map((item) => [item.identifier, item]));
+  const childrenOf = new Map();
+  const roots = [];
+  for (const item of issues) {
+    const parentKey = item.parent?.identifier;
+    if (parentKey && byIdentifier.has(parentKey)) {
+      const list = childrenOf.get(parentKey) ?? [];
+      list.push(item);
+      childrenOf.set(parentKey, list);
+    } else {
+      roots.push(item);
+    }
+  }
+  const ordered = [];
+  for (const root of roots) {
+    ordered.push(root);
+    const kids = childrenOf.get(root.identifier);
+    if (kids) ordered.push(...kids);
+  }
+  return ordered.length === issues.length ? ordered : issues;
+}
+
+export function extractLinearScopes(columns) {
+  const projects = new Map();
+  const teams = new Map();
+  for (const list of Object.values(columns || {})) {
+    for (const issue of list || []) {
+      if (issue.projectId) projects.set(issue.projectId, issue.projectName || issue.projectId);
+      if (issue.teamId) teams.set(issue.teamId, issue.teamName || issue.teamKey || issue.teamId);
+    }
+  }
+  return {
+    projects: [...projects.entries()].map(([id, name]) => ({ id, name })),
+    teams: [...teams.entries()].map(([id, name]) => ({ id, name })),
+  };
+}
+
 export function LinearIssueCard({ issue, onMove, busy, dragging, onDrag }) {
   const t = useT();
   const draggable = Boolean(onMove && !busy);
-  return <article className={`linear-issue nodrag${dragging ? ' is-dragging' : ''}`} data-issue-id={issue.id}
+  const scopeLabel = issue.projectName || issue.teamName || issue.teamKey || '';
+  return <article className={`linear-issue nodrag${dragging ? ' is-dragging' : ''}${issue.parent ? ' is-subissue' : ''}`} data-issue-id={issue.id}
     aria-busy={busy || undefined} draggable={draggable}
     onDragStart={(event) => {
       if (!draggable) return;
       event.stopPropagation();
       event.dataTransfer.setData(LINEAR_ISSUE_DRAG, issue.id);
       event.dataTransfer.effectAllowed = 'move';
-      onDrag({ id: issue.id, status: issue.status });
+      onDrag?.({ id: issue.id, status: issue.status });
     }} onDragEnd={() => onDrag?.(null)}>
     <div className="linear-issue-meta">
-      <span className="linear-issue-id">[{issue.identifier}]</span>
+      <div className="linear-issue-tags">
+        <span className="linear-issue-id">[{issue.identifier}]</span>
+        {issue.parent?.identifier && <span className="linear-issue-parent" title={issue.parent.title || issue.parent.identifier}>↳ {issue.parent.identifier}</span>}
+        {scopeLabel && <span className="linear-issue-scope" title={scopeLabel}>{scopeLabel}</span>}
+      </div>
       <Assignee key={issue.assignee?.avatarUrl} assignee={issue.assignee} />
     </div>
     <h4 title={issue.title}>{issue.title}</h4>
     <div className="linear-issue-footer">
       <span className={`linear-priority priority-${issue.priority}`}>{t(`linear.priority.${issue.priority}`)}</span>
+      {issue.stateName && <span className="linear-state-pill">{issue.stateName}</span>}
       {onMove && <label className="linear-move" title={t('linear.move', { identifier: issue.identifier })}>
         <ChevronsUpDown size={15} aria-hidden="true" />
         <select aria-label={t('linear.move', { identifier: issue.identifier })} data-linear-move

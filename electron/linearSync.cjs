@@ -6,7 +6,7 @@ const ISSUE_ID = /^[\w-]{1,128}$/;
 const ISSUE_IDENTIFIER = /^[a-z\d][a-z\d_-]{0,110}-\d{1,16}$/i;
 const STATE_FIELDS = 'id name type';
 const ISSUE_FIELDS = `id identifier title priority updatedAt state { ${STATE_FIELDS} }
-  team { id } project { id } assignee { name displayName avatarUrl }`;
+  team { id name key } project { id name } parent { id identifier title } assignee { name displayName avatarUrl }`;
 const ISSUE_LIST = `query OrchestraIssues($filter: IssueFilter!, $after: String, $project: String!, $team: String!, $hasProject: Boolean!, $hasTeam: Boolean!) {
   issues(first: 100, after: $after, filter: $filter, orderBy: updatedAt) {
     nodes { ${ISSUE_FIELDS} }
@@ -63,7 +63,17 @@ function normalizeIssue(issue) {
     stateName: issue.state?.name ?? '',
     updatedAt: issue.updatedAt,
     projectId: issue.project?.id ?? '',
+    ...(typeof issue.project?.name === 'string' && issue.project.name.trim() && { projectName: issue.project.name.trim() }),
     teamId: issue.team?.id ?? '',
+    ...(typeof issue.team?.name === 'string' && issue.team.name.trim() && { teamName: issue.team.name.trim() }),
+    ...(typeof issue.team?.key === 'string' && issue.team.key.trim() && { teamKey: issue.team.key.trim() }),
+    ...(typeof issue.parent?.identifier === 'string' && ISSUE_IDENTIFIER.test(issue.parent.identifier) && {
+      parent: {
+        id: typeof issue.parent.id === 'string' ? issue.parent.id : '',
+        identifier: issue.parent.identifier,
+        title: typeof issue.parent.title === 'string' ? issue.parent.title : '',
+      },
+    }),
     assignee: issue.assignee ? {
       name: issue.assignee.displayName || issue.assignee.name,
       avatarUrl: avatarUrl(issue.assignee.avatarUrl),
