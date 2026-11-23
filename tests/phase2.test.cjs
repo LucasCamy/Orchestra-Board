@@ -145,6 +145,9 @@ test('enterprise roles have independent agent choices and the expected collabora
   assert.ok(setup.board.edges.some(({ source, target, data }) => source === linear.id && target === lead.id && data.mode === 'linear'));
   assert.deepEqual(setup.bigBrain, { noteId: bigBrain.id, architectId: architect.id, cwd: directory });
   assert.ok([architect, lead, backend, frontend, qa].every((card) => linked(card, bigBrain, 'note')));
+  assert.ok([architect, lead, backend, frontend, qa].every((card) =>
+    setup.board.edges.some(({ source, data }) => source === card.id && data.mode === 'terminal') &&
+    setup.board.edges.some(({ source, data }) => source === card.id && data.mode === 'browser')));
   assert.ok([lead, backend, frontend, qa].every((card) => card.data.role.startsWith('team.guide.bigBrainWorker')));
   assert.deepEqual(setup.backlog, { noteId: plan.id, cwd: directory });
   assert.deepEqual(setup.mcp.cards, { [lead.id]: ['linear'], [qa.id]: ['chrome-devtools'] });
