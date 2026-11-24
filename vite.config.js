@@ -7,7 +7,7 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  "img-src 'self' data: blob: https://*.linear.app https://public.linear.app",
   "media-src 'self' data:",
   "font-src 'self' data:",
   "connect-src 'self'",
