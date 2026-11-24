@@ -1,4 +1,4 @@
-import { Component, createRef, useMemo, useState } from 'react';
+import { Component, createRef, useEffect, useMemo, useState } from 'react';
 import { Handle, Position, useReactFlow } from '@xyflow/react';
 import { RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import { LINEAR_ISSUE_DRAG, LINEAR_STATUSES, linearScopeId, sanitizeLinearBoard } from '../../electron/linearModel.mjs';
@@ -72,15 +72,66 @@ function LinearFilters({ data, onSave }) {
   const t = useT();
   const [projectId, setProjectId] = useState(data.projectId ?? '');
   const [teamId, setTeamId] = useState(data.teamId ?? '');
+  const [scopes, setScopes] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    window.linearBoard?.fetchScopes?.().then((res) => {
+      if (active && !res?.error) setScopes(res);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
   const invalid = (projectId.trim() && !linearScopeId(projectId)) || (teamId.trim() && !linearScopeId(teamId));
   return <form className="linear-filters nodrag nopan nowheel" onSubmit={(event) => {
     event.preventDefault();
     if (!invalid) onSave(sanitizeLinearBoard({ projectId, teamId }));
   }}>
-    <label className="field"><span className="field-label">{t('linear.projectId')}</span>
-      <input value={projectId} maxLength={128} onChange={(event) => setProjectId(event.target.value)} autoFocus /></label>
-    <label className="field"><span className="field-label">{t('linear.teamId')}</span>
-      <input value={teamId} maxLength={128} onChange={(event) => setTeamId(event.target.value)} /></label>
+    <label className="field">
+      <span className="field-label">{t('linear.projectId')}</span>
+      {scopes?.projects?.length > 0 && (
+        <select
+          value={scopes.projects.some((p) => p.id === projectId) ? projectId : ''}
+          onChange={(event) => setProjectId(event.target.value)}
+        >
+          <option value="">{t('linear.allProjects')}</option>
+          {scopes.projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} {p.state ? `(${p.state})` : ''}
+            </option>
+          ))}
+        </select>
+      )}
+      <input
+        value={projectId}
+        placeholder={scopes?.projects?.length ? t('linear.orCustomId') : undefined}
+        maxLength={128}
+        onChange={(event) => setProjectId(event.target.value)}
+        autoFocus={!scopes?.projects?.length}
+      />
+    </label>
+    <label className="field">
+      <span className="field-label">{t('linear.teamId')}</span>
+      {scopes?.teams?.length > 0 && (
+        <select
+          value={scopes.teams.some((tm) => tm.id === teamId) ? teamId : ''}
+          onChange={(event) => setTeamId(event.target.value)}
+        >
+          <option value="">{t('linear.allTeams')}</option>
+          {scopes.teams.map((tm) => (
+            <option key={tm.id} value={tm.id}>
+              {tm.key ? `${tm.key} · ` : ''}{tm.name}
+            </option>
+          ))}
+        </select>
+      )}
+      <input
+        value={teamId}
+        placeholder={scopes?.teams?.length ? t('linear.orCustomId') : undefined}
+        maxLength={128}
+        onChange={(event) => setTeamId(event.target.value)}
+      />
+    </label>
     <p className="hint">{t(invalid ? 'linear.error.invalidScope' : 'linear.filterHint')}</p>
     <button type="submit" className="text-button" disabled={!!invalid}>{t('common.save')}</button>
   </form>;

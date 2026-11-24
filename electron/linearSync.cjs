@@ -24,6 +24,14 @@ const ISSUE_WORKFLOW = `query OrchestraIssueWorkflow($id: String!, $after: Strin
 const UPDATE_STATUS = `mutation OrchestraIssueStatus($id: String!, $state: String!) {
   issueUpdate(id: $id, input: { stateId: $state }) { success issue { ${ISSUE_FIELDS} } }
 }`;
+const SCOPES_LIST = `query OrchestraScopes {
+  projects(first: 100, orderBy: updatedAt) {
+    nodes { id name state }
+  }
+  teams(first: 100) {
+    nodes { id name key }
+  }
+}`;
 
 function statusOf(state) {
   switch (state?.type) {
@@ -224,9 +232,29 @@ function createLinearSync({ getKey, fetchApi = globalThis.fetch, emit = () => {}
     } finally { updating.delete(lockId); }
   }
 
+  async function fetchScopes() {
+    const key = await getKey();
+    if (!key) return { error: 'notConfigured' };
+    try {
+      const data = await request(key, SCOPES_LIST, {});
+      const projects = (data.projects?.nodes ?? []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        state: p.state ?? '',
+      }));
+      const teams = (data.teams?.nodes ?? []).map((t) => ({
+        id: t.id,
+        name: t.name,
+        key: t.key ?? '',
+      }));
+      return { projects, teams };
+    } catch (error) { return { error: error.message }; }
+  }
+
   return {
     fetchIssues,
     updateIssueStatus,
+    fetchScopes,
     onHook: (payload) => { if (isLinearIssueChange(payload)) emit({}); },
   };
 }

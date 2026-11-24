@@ -60,6 +60,7 @@ ipcMain.handle('linear:saveKey', async (event, key) => {
   return { configured: !!key.trim() };
 });
 ipcMain.handle('linear:fetchIssues', (event, scope) => isBoardFrame(event) ? linear.fetchIssues(scope ?? {}) : { error: 'invalidScope' });
+ipcMain.handle('linear:fetchScopes', (event) => isBoardFrame(event) ? linear.fetchScopes() : { error: 'invalidScope' });
 ipcMain.handle('linear:updateIssueStatus', async (event, input, context) => {
   if (!isBoardFrame(event)) return { error: 'invalidScope' };
   const result = await linear.updateIssueStatus(input ?? {});

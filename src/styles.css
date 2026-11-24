@@ -275,7 +275,7 @@ button { font: inherit; color: inherit; }
 }
 .linear-filters p { margin: 0; }
 .linear-filters button { justify-self: start; }
-.linear-key-input, .linear-filters input {
+.linear-key-input, .linear-filters input, .linear-filters select {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--border);
@@ -283,6 +283,10 @@ button { font: inherit; color: inherit; }
   background: var(--surface);
   color: var(--text);
   font: inherit;
+}
+.linear-filters select {
+  cursor: pointer;
+  margin-bottom: 4px;
 }
 .linear-feedback {
   display: flex;

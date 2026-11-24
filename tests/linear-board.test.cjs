@@ -154,3 +154,29 @@ test('Linear preferences write an encrypted file and preserve the previous key w
   assert.equal(await credentials.save(''), null);
   assert.equal(await credentials.read(), '');
 });
+
+test('Linear fetchScopes returns projects and teams with their metadata', async () => {
+  const linear = createLinearSync({
+    getKey: () => 'fixture',
+    fetchApi: async (url, request) => {
+      assert.equal(url, 'https://api.linear.app/graphql');
+      const { query } = JSON.parse(request.body);
+      assert.ok(query.includes('OrchestraScopes'));
+      return data({
+        projects: connection([
+          { id: 'proj-1', name: 'Modernização SIGA', state: 'started' },
+          { id: 'proj-2', name: 'Segurança UCDB', state: 'backlog' },
+        ]),
+        teams: connection([
+          { id: 'team-1', name: 'Desenvolvimento', key: 'DEV' },
+        ]),
+      });
+    },
+  });
+  const scopes = await linear.fetchScopes();
+  assert.equal(scopes.projects.length, 2);
+  assert.equal(scopes.projects[0].name, 'Modernização SIGA');
+  assert.equal(scopes.projects[0].state, 'started');
+  assert.equal(scopes.teams.length, 1);
+  assert.equal(scopes.teams[0].key, 'DEV');
+});

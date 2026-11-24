@@ -178,6 +178,7 @@ contextBridge.exposeInMainWorld('linearBoard', {
   connection: () => ipcRenderer.invoke('linear:connection'),
   saveKey: (key) => ipcRenderer.invoke('linear:saveKey', key),
   fetchIssues: (scope) => ipcRenderer.invoke('linear:fetchIssues', scope),
+  fetchScopes: () => ipcRenderer.invoke('linear:fetchScopes'),
   updateIssueStatus: (input, context) => ipcRenderer.invoke('linear:updateIssueStatus', input, context),
   onIssueChanged: (callback) => {
     const listener = (_event, change) => callback(change);
