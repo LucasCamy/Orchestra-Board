@@ -133,6 +133,7 @@ function recipes() {
         link('architect-lead', 'architect', 'lead', 'delegate'),
         link('architect-plan', 'architect', 'plan', 'note'),
         link('lead-plan', 'lead', 'plan', 'note'),
+        link('qa-plan', 'qa', 'plan', 'note'),
         link('lead-backend', 'lead', 'backend', 'delegate'),
         link('lead-frontend', 'lead', 'frontend', 'delegate'),
         link('lead-qa', 'lead', 'qa', 'delegate'),
