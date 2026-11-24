@@ -87,3 +87,39 @@ test('bidirectional relay uses reversePrompt when target finishes and relays bac
   time.tick(250); // ENTER_DELAY
   assert.ok(written.some(([target, text]) => target === 'architect' && text.includes('Report back: Tasks complete with 0 errors.')));
 });
+
+test('relay stops cycle and suppresses farewell ping-pong between agents', () => {
+  const time = clock();
+  const status = load('agentStatus.cjs', {}, time);
+  const relay = load('linkRelay.cjs', { './i18n.cjs': i18n }, time);
+  const written = [];
+  relay.init({ status: (id) => status.info(id)?.status, write: (id, text) => written.push([id, text]), arm: status.arm });
+  status.register('architect', 'hooks');
+  status.register('lead', 'hooks');
+  relay.setLinks({ boards: [{ edges: [{
+    id: 'link-arch-lead', source: 'architect', target: 'lead',
+    data: {
+      mode: 'relay', enabled: true, maxTurns: 5, bidirectional: true, review: false,
+      prompt: 'Directive: {response}',
+      reversePrompt: 'Report back: {response}',
+    },
+  }] }] });
+
+  // 1. Explicit termination tag [CICLO_ENCERRADO] stops relay
+  relay.onStop('architect', { last_assistant_message: '[CICLO_ENCERRADO] PR homologada com sucesso.' });
+  time.tick(relay.READ_DELAY + 10);
+  time.tick(250);
+  assert.equal(written.length, 0);
+
+  // 2. Pure farewell without task/actionable content is suppressed
+  relay.onStop('lead', { last_assistant_message: 'Muito obrigado, Tech Lead! Seguimos à disposição e em prontidão para os próximos passos.' });
+  time.tick(relay.READ_DELAY + 10);
+  time.tick(250);
+  assert.equal(written.length, 0);
+
+  // 3. Actionable response still relays normally
+  relay.onStop('lead', { last_assistant_message: 'O build da solução passou com 0 erros e 18 testes aprovados. Aguardo validação.' });
+  time.tick(relay.READ_DELAY + 10);
+  time.tick(250);
+  assert.ok(written.some(([target, text]) => target === 'architect' && text.includes('O build da solução passou')));
+});

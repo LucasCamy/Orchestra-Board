@@ -149,6 +149,21 @@ function buildText(prompt, reply) {
   return token ? template.replaceAll(token, () => reply) : `${template}\n\n${reply}`.trim();
 }
 
+// Détecte la fin d'un cycle ou les politesses de clôture pour éviter le ping-pong de politesses.
+function isRelayTermination(reply) {
+  if (!reply || typeof reply !== 'string') return false;
+  const trimmed = reply.trim();
+  if (/\[(CICLO_ENCERRADO|CICLO_CONCLUIDO|FIM_DE_CICLO|AGUARDANDO_DEMANDA|STOP_RELAY|FINALIZADO|TERMINATED|DONE)\]/i.test(trimmed)) {
+    return true;
+  }
+  if (trimmed.length < 300) {
+    const hasFarewell = /(?:obrigad[oa]|valeu|até\s+(?:logo|breve|mais|lá|o\s+próximo|amanhã)|bom\s+(?:descanso|trabalho|dia)|(?:um\s+)?abraço|disposição|prontidão|disponha)/i.test(trimmed);
+    const hasActionable = /(?:\?|código|build|commit|\bPR\s|\bPR$|\bpull\s+request\b|erro|falha|teste|\bpasso\s+\d|\bfase\s+\d|branch|issue|arquivo|controller|migration|implement|corrij|verifiq|analis)/i.test(trimmed);
+    if (hasFarewell && !hasActionable) return true;
+  }
+  return false;
+}
+
 // Collage entre crochets (le CLI le reçoit comme un collage, pas comme une frappe), puis Entrée à part.
 // item : { key, id, text, chain, turns, maxTurns, stillValid(), onDelivered() } (les deux derniers facultatifs).
 function deliver(target, item) {
@@ -324,6 +339,11 @@ function onStop(id, payload, { fallback = false } = {}) {
         refuse(t('link.noReply'));
         continue;
       }
+      if (isRelayTermination(reply)) {
+        deps.log({ kind: 'cancelled', linkId: link.id, from: id, to: link.target, text: t('link.cycleCompleted') });
+        deps.emit(link.id, { state: 'ready', turns: 0, maxTurns: link.maxTurns });
+        continue;
+      }
       const used = chain.counts.get(link.key) ?? 0;
       if (used >= link.maxTurns) {
         deps.emit(link.id, { state: 'limit', turns: used, maxTurns: link.maxTurns });
@@ -496,4 +516,4 @@ function dispose() {
   deliveries.clear(); queues.clear(); drafts.clear(); chains.clear(); links.clear();
 }
 
-module.exports = { init, setLinks, onStop, onUserInput, onStatus, enqueue, chainOf, lastReply, pendingList, approve, discard, cancel, cancelSequence, onHook, dispose, READ_DELAY };
+module.exports = { init, setLinks, onStop, onUserInput, onStatus, enqueue, chainOf, lastReply, isRelayTermination, pendingList, approve, discard, cancel, cancelSequence, onHook, dispose, READ_DELAY };
