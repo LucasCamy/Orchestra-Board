@@ -61,6 +61,10 @@ test('AGY stop hooks relay the current turn only, after the agent is fully idle'
   const fullTranscript = path.join(path.dirname(transcript), 'transcript_full.jsonl');
   assert.equal(adapter.normalize({ conversationId: sessionId, hookEventName: 'Stop', fullyIdle: true, transcriptPath: fullTranscript }).transcript_path, fullTranscript);
   assert.equal(adapter.normalize({ conversationId: sessionId, hookEventName: 'Stop', fullyIdle: true }).transcript_path, transcript);
+  const altTranscript = path.join(root, '.gemini', 'antigravity', 'brain', sessionId, '.system_generated', 'logs', 'transcript.jsonl');
+  fs.mkdirSync(path.dirname(altTranscript), { recursive: true });
+  fs.writeFileSync(altTranscript, '');
+  assert.equal(adapter.normalize({ conversationId: sessionId, hookEventName: 'Stop', fullyIdle: true, transcriptPath: altTranscript }).transcript_path, altTranscript);
   assert.equal(adapter.normalize({ ...hook, hookEventName: 'Stop', transcriptPath: path.join(root, 'unrelated.jsonl') }).transcript_path, null);
   assert.equal(adapter.normalize({ ...hook, hookEventName: 'Stop', conversationId: 'not-a-uuid' }).session_id, null);
   const steps = [

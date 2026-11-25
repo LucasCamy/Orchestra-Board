@@ -76,16 +76,28 @@ function normalize(payload) {
 }
 
 function transcriptFor(sessionId, reportedPath) {
-  const dir = path.join(os.homedir(), '.gemini', 'antigravity-cli', 'brain', sessionId, '.system_generated', 'logs');
-  const expected = path.join(dir, 'transcript.jsonl');
-  const expectedFull = path.join(dir, 'transcript_full.jsonl');
+  const dirs = [
+    path.join(os.homedir(), '.gemini', 'antigravity-cli', 'brain', sessionId, '.system_generated', 'logs'),
+    path.join(os.homedir(), '.gemini', 'antigravity', 'brain', sessionId, '.system_generated', 'logs'),
+  ];
   if (typeof reportedPath === 'string' && path.isAbsolute(reportedPath)) {
-    if (path.relative(expected, reportedPath) === '' || path.relative(expectedFull, reportedPath) === '') {
-      return reportedPath;
+    for (const dir of dirs) {
+      const expected = path.join(dir, 'transcript.jsonl');
+      const expectedFull = path.join(dir, 'transcript_full.jsonl');
+      if (path.relative(expected, reportedPath) === '' || path.relative(expectedFull, reportedPath) === '') {
+        return reportedPath;
+      }
     }
     return null;
   }
-  return reportedPath == null ? (fs.existsSync(expectedFull) ? expectedFull : expected) : null;
+  if (reportedPath != null) return null;
+  for (const dir of dirs) {
+    const expectedFull = path.join(dir, 'transcript_full.jsonl');
+    const expected = path.join(dir, 'transcript.jsonl');
+    if (fs.existsSync(expectedFull)) return expectedFull;
+    if (fs.existsSync(expected)) return expected;
+  }
+  return path.join(dirs[0], 'transcript.jsonl');
 }
 
 module.exports = { prepare, remove, clearAll, normalize, settingsFor, mcpConfigFor };
