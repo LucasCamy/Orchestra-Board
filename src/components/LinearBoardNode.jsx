@@ -1,6 +1,6 @@
-import { Component, createRef, useEffect, useMemo, useState } from 'react';
+import { Component, createRef, useEffect, useMemo, useRef, useState } from 'react';
 import { Handle, Position, useReactFlow } from '@xyflow/react';
-import { RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronDown, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import { LINEAR_ISSUE_DRAG, LINEAR_STATUSES, linearScopeId, sanitizeLinearBoard } from '../../electron/linearModel.mjs';
 import { useBoard } from '../context/BoardContext.jsx';
 import useLinearIssues from '../hooks/useLinearIssues.js';
@@ -68,6 +68,215 @@ class LinearColumns extends Component {
   }
 }
 
+function ScopeDropdown({
+  label,
+  value,
+  onChange,
+  items = [],
+  allLabel,
+  autoFocus = false,
+  formatItem = (item) => ({ title: item.name, badge: item.state }),
+}) {
+  const t = useT();
+  const ref = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [customMode, setCustomMode] = useState(false);
+
+  const selectedItem = items?.find((item) => item.id === value);
+  const isCustomValue = Boolean(value && !selectedItem);
+
+  useEffect(() => {
+    if (isCustomValue) setCustomMode(true);
+  }, [isCustomValue]);
+
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event) => {
+      if (!ref.current?.contains(event.target)) setOpen(false);
+    };
+    const key = (event) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setOpen(false);
+      }
+    };
+    window.addEventListener('pointerdown', outside);
+    window.addEventListener('keydown', key, true);
+    return () => {
+      window.removeEventListener('pointerdown', outside);
+      window.removeEventListener('keydown', key, true);
+    };
+  }, [open]);
+
+  if (!items || items.length === 0) {
+    return (
+      <label className="field">
+        <span className="field-label">{label}</span>
+        <input
+          value={value}
+          placeholder={t('linear.orCustomId')}
+          maxLength={128}
+          onChange={(event) => onChange(event.target.value)}
+          autoFocus={autoFocus}
+        />
+      </label>
+    );
+  }
+
+  if (customMode) {
+    return (
+      <div className="field">
+        <div className="linear-field-header">
+          <span className="field-label">{label}</span>
+          <button
+            type="button"
+            className="linear-mode-toggle"
+            onClick={() => {
+              setCustomMode(false);
+              onChange('');
+            }}
+          >
+            {t('linear.chooseFromList')}
+          </button>
+        </div>
+        <div className="linear-custom-input-wrap">
+          <input
+            value={value}
+            placeholder={t('linear.orCustomId')}
+            maxLength={128}
+            onChange={(event) => onChange(event.target.value)}
+            autoFocus
+          />
+        </div>
+      </div>
+    );
+  }
+
+  const q = search.trim().toLowerCase();
+  const filtered = items.filter((item) => {
+    if (!q) return true;
+    const { title, badge } = formatItem(item);
+    return title.toLowerCase().includes(q) || (badge && badge.toLowerCase().includes(q));
+  });
+
+  const display = selectedItem ? formatItem(selectedItem) : { title: allLabel, badge: null };
+
+  return (
+    <div className="field linear-scope-field" ref={ref}>
+      <span className="field-label">{label}</span>
+      <div className="linear-scope-control">
+        <button
+          type="button"
+          className="linear-scope-trigger"
+          aria-expanded={open}
+          onClick={() => {
+            setOpen(!open);
+            setSearch('');
+          }}
+        >
+          <div className="linear-scope-trigger-content">
+            <span className="linear-scope-label" title={display.title}>
+              {display.title}
+            </span>
+            {display.badge && (
+              <span className="linear-scope-badge" data-state={display.badge}>
+                {display.badge}
+              </span>
+            )}
+          </div>
+          <ChevronDown size={14} className="linear-scope-chevron" aria-hidden="true" />
+        </button>
+
+        {open && (
+          <div className="context-menu linear-scope-menu thin-scrollbar nodrag nopan nowheel">
+            {items.length > 4 && (
+              <div className="linear-scope-search">
+                <Search size={13} aria-hidden="true" />
+                <input
+                  type="search"
+                  value={search}
+                  placeholder={t('linear.searchScopes')}
+                  onChange={(e) => setSearch(e.target.value)}
+                  autoFocus
+                  onClick={(e) => e.stopPropagation()}
+                />
+                {search && (
+                  <button
+                    type="button"
+                    className="icon-button linear-search-clear"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSearch('');
+                    }}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="linear-scope-list thin-scrollbar">
+              <button
+                type="button"
+                className={`menu-item linear-scope-item${!value ? ' selected' : ''}`}
+                onClick={() => {
+                  onChange('');
+                  setOpen(false);
+                }}
+              >
+                <span className="menu-label">{allLabel}</span>
+                {!value && <Check size={14} className="linear-scope-check" />}
+              </button>
+              <div className="menu-separator" />
+              {filtered.map((item) => {
+                const { title, badge } = formatItem(item);
+                const isSelected = item.id === value;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`menu-item linear-scope-item${isSelected ? ' selected' : ''}`}
+                    onClick={() => {
+                      onChange(item.id);
+                      setOpen(false);
+                    }}
+                  >
+                    <span className="menu-label" title={title}>
+                      {title}
+                    </span>
+                    {badge && (
+                      <span className="linear-scope-badge" data-state={badge}>
+                        {badge}
+                      </span>
+                    )}
+                    {isSelected && <Check size={14} className="linear-scope-check" />}
+                  </button>
+                );
+              })}
+              {filtered.length === 0 && (
+                <div className="linear-scope-empty">
+                  {t('linear.searchEmpty') || '—'}
+                </div>
+              )}
+              <div className="menu-separator" />
+              <button
+                type="button"
+                className="menu-item linear-scope-item linear-scope-custom-action"
+                onClick={() => {
+                  setCustomMode(true);
+                  setOpen(false);
+                }}
+              >
+                <span className="menu-label">{t('linear.orCustomId')}</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function LinearFilters({ data, onSave }) {
   const t = useT();
   const [projectId, setProjectId] = useState(data.projectId ?? '');
@@ -87,53 +296,30 @@ function LinearFilters({ data, onSave }) {
     event.preventDefault();
     if (!invalid) onSave(sanitizeLinearBoard({ projectId, teamId }));
   }}>
-    <label className="field">
-      <span className="field-label">{t('linear.projectId')}</span>
-      {scopes?.projects?.length > 0 && (
-        <select
-          value={scopes.projects.some((p) => p.id === projectId) ? projectId : ''}
-          onChange={(event) => setProjectId(event.target.value)}
-        >
-          <option value="">{t('linear.allProjects')}</option>
-          {scopes.projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} {p.state ? `(${p.state})` : ''}
-            </option>
-          ))}
-        </select>
-      )}
-      <input
-        value={projectId}
-        placeholder={scopes?.projects?.length ? t('linear.orCustomId') : undefined}
-        maxLength={128}
-        onChange={(event) => setProjectId(event.target.value)}
-        autoFocus={!scopes?.projects?.length}
-      />
-    </label>
-    <label className="field">
-      <span className="field-label">{t('linear.teamId')}</span>
-      {scopes?.teams?.length > 0 && (
-        <select
-          value={scopes.teams.some((tm) => tm.id === teamId) ? teamId : ''}
-          onChange={(event) => setTeamId(event.target.value)}
-        >
-          <option value="">{t('linear.allTeams')}</option>
-          {scopes.teams.map((tm) => (
-            <option key={tm.id} value={tm.id}>
-              {tm.key ? `${tm.key} · ` : ''}{tm.name}
-            </option>
-          ))}
-        </select>
-      )}
-      <input
-        value={teamId}
-        placeholder={scopes?.teams?.length ? t('linear.orCustomId') : undefined}
-        maxLength={128}
-        onChange={(event) => setTeamId(event.target.value)}
-      />
-    </label>
+    <ScopeDropdown
+      label={t('linear.projectId')}
+      value={projectId}
+      onChange={setProjectId}
+      items={scopes?.projects}
+      allLabel={t('linear.allProjects')}
+      autoFocus
+      formatItem={(p) => ({ title: p.name, badge: p.state })}
+    />
+    <ScopeDropdown
+      label={t('linear.teamId')}
+      value={teamId}
+      onChange={setTeamId}
+      items={scopes?.teams}
+      allLabel={t('linear.allTeams')}
+      formatItem={(tm) => ({
+        title: tm.key ? `${tm.key} · ${tm.name}` : tm.name,
+        badge: null,
+      })}
+    />
     <p className="hint">{t(invalid ? 'linear.error.invalidScope' : 'linear.filterHint')}</p>
-    <button type="submit" className="text-button" disabled={!!invalid}>{t('common.save')}</button>
+    <div className="linear-filters-actions">
+      <button type="submit" className="text-button" disabled={!!invalid}>{t('common.save')}</button>
+    </div>
   </form>;
 }
 

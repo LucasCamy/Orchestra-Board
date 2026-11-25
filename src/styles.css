@@ -260,23 +260,38 @@ button { font: inherit; color: inherit; }
 .linear-header-actions button[aria-expanded='true'] { color: var(--accent); background: var(--surface-2); }
 .linear-filters {
   position: absolute;
-  z-index: 5;
+  z-index: 30;
   top: calc(100% + 5px);
   right: 12px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
-  width: 300px;
+  width: 400px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);
-  box-shadow: 0 8px 24px var(--shadow);
+  box-shadow: 0 12px 32px var(--shadow-lifted);
   cursor: default;
 }
-.linear-filters p { margin: 0; }
-.linear-filters button { justify-self: start; }
-.linear-key-input, .linear-filters input, .linear-filters select {
+.linear-filters p.hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.linear-filters-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.linear-key-input, .linear-filters input {
   width: 100%;
+  box-sizing: border-box;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -284,9 +299,215 @@ button { font: inherit; color: inherit; }
   color: var(--text);
   font: inherit;
 }
-.linear-filters select {
+.linear-field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.linear-mode-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 11px;
   cursor: pointer;
+  text-decoration: underline;
+}
+.linear-mode-toggle:hover {
+  color: var(--accent-hover);
+}
+.linear-custom-input-wrap {
+  width: 100%;
+  box-sizing: border-box;
+}
+.linear-scope-control {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+}
+.linear-scope-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  box-sizing: border-box;
+  transition: border-color 0.15s, background 0.15s;
+}
+.linear-scope-trigger:hover,
+.linear-scope-trigger:focus-visible,
+.linear-scope-trigger[aria-expanded='true'] {
+  border-color: var(--accent);
+  background: var(--surface-2);
+  outline: none;
+}
+.linear-scope-trigger-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.linear-scope-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.linear-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: capitalize;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+.linear-scope-badge[data-state='started'] {
+  background: color-mix(in srgb, #f39c12 20%, transparent);
+  color: #f39c12;
+}
+.linear-scope-badge[data-state='backlog'] {
+  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
+  color: var(--text-muted);
+}
+.linear-scope-badge[data-state='completed'] {
+  background: color-mix(in srgb, #2ecc71 20%, transparent);
+  color: #2ecc71;
+}
+.linear-scope-badge[data-state='canceled'] {
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+  color: var(--danger);
+}
+.linear-scope-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+.linear-scope-trigger[aria-expanded='true'] .linear-scope-chevron {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+.linear-scope-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  box-shadow: 0 12px 32px var(--shadow-lifted);
+  z-index: 100;
+  animation: fade-in 100ms ease-out;
+}
+.linear-scope-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
   margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.linear-scope-search > svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.linear-scope-search input {
+  flex: 1;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  padding: 2px 4px !important;
+}
+.linear-search-clear {
+  padding: 2px;
+  width: 20px;
+  height: 20px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+.linear-search-clear:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+.linear-scope-list {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.linear-scope-item {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.linear-scope-item:hover,
+.linear-scope-item:focus-visible {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  outline: none;
+}
+.linear-scope-item.selected {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.linear-scope-check {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.linear-scope-custom-action {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+.linear-scope-custom-action:hover {
+  color: var(--accent);
+}
+.linear-scope-empty {
+  padding: 8px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  margin: 0;
 }
 .linear-feedback {
   display: flex;
