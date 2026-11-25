@@ -167,14 +167,19 @@ function createInteractiveBrowser() {
     const { guest } = entry;
     if (entry.agentNavigation || guest.isLoading()) return error('busy');
     const origin = originOf(guest.getURL());
-    if (!origin || (name === NAVIGATE && originOf(args?.url) !== origin)) return error('origin');
-    const navigation = { origin };
-    entry.agentNavigation = navigation;
-    if (name === RELOAD) guest.reload();
-    else {
-      const finish = () => { if (entry.agentNavigation === navigation) entry.agentNavigation = null; };
-      guest.loadURL(browserUrl(args.url)).then(finish, finish);
+    if (name === RELOAD) {
+      if (!origin) return error('origin');
+      entry.agentNavigation = { origin };
+      guest.reload();
+      return ok({ tabId: entry.tabId, started: true });
     }
+    const targetUrl = browserUrl(args?.url);
+    const targetOrigin = originOf(args?.url);
+    if (!targetUrl || !targetOrigin || (origin && targetOrigin !== origin)) return error('origin');
+    const navigation = { origin: origin ?? targetOrigin };
+    entry.agentNavigation = navigation;
+    const finish = () => { if (entry.agentNavigation === navigation) entry.agentNavigation = null; };
+    guest.loadURL(targetUrl).then(finish, finish);
     return ok({ tabId: entry.tabId, started: true });
   }
 

@@ -181,13 +181,13 @@ const TOOLS = [
   {
     name: 'orchestra_browser_get_state',
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    description: 'Lists live tabs on Interactive Browser cards you can reach through a Browser link. Returns tab IDs, routes, titles, loading and history state, and console error types and locations. The user opens the site in the browser first.',
+    description: 'Lists live tabs on Interactive Browser cards you can reach through a Browser link. Returns tab IDs, routes, titles, loading and history state, and console error types and locations.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'orchestra_browser_navigate',
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    description: 'Starts navigation within the current origin of a linked Interactive Browser tab. Use a tab ID from orchestra_browser_get_state and poll that tool for the result.',
+    description: 'Starts navigation of a linked Interactive Browser tab (opens an initial URL or navigates within current origin). Use a tab ID from orchestra_browser_get_state and poll that tool for the result.',
     inputSchema: {
       type: 'object',
       properties: { tabId: { type: 'string' }, url: { type: 'string', maxLength: 4096 } },

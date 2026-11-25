@@ -175,6 +175,20 @@ test('MCP controls linked live tabs on their current origin and returns bounded 
   guest.emit('did-stop-loading');
   assert.equal(controller.callTool(workspace, 'qa', 'orchestra_browser_reload', { tabId: 'browser:tab' }).isError, false);
   assert.equal(guest.reloaded, true);
+
+  const blankGuest = Object.assign(new EventEmitter(), {
+    id: 2, setWindowOpenHandler() {}, getURL: () => 'about:blank', getTitle: () => '', isLoading: () => false, isDestroyed: () => false,
+    navigationHistory: { canGoBack: () => false, canGoForward: () => false },
+    reload() { this.reloaded = true; },
+    async loadURL(target) { this.target = target; },
+    session: { cookies: { async get() { return []; }, async remove() {} } },
+  });
+  host.emit('did-attach-webview', {}, blankGuest);
+  controller.register(host, 2, 'board', 'browser', 'blank-tab');
+  const navBlank = (url) => controller.callTool(workspace, 'qa', 'orchestra_browser_navigate', { tabId: 'browser:blank-tab', url });
+  assert.equal(navBlank('about:blank').isError, true);
+  assert.equal(navBlank('https://fixture.test/start').isError, false);
+  assert.equal(blankGuest.target, 'https://fixture.test/start');
   assert.equal(await controller.cookies(host, 1, 'https://other.test/'), null);
   assert.equal(Object.hasOwn((await controller.cookies(host, 1, url)).cookies[0], 'value'), false);
   await controller.cookies(host, 1, url, true);
@@ -183,5 +197,6 @@ test('MCP controls linked live tabs on their current origin and returns bounded 
   assert.deepEqual(state(), { tabs: [] });
   board.edges[0].data.enabled = true;
   guest.emit('destroyed');
+  blankGuest.emit('destroyed');
   assert.deepEqual(state(), { tabs: [] });
 });
