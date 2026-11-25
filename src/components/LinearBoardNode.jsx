@@ -189,7 +189,7 @@ function ScopeDropdown({
         </button>
 
         {open && (
-          <div className="context-menu linear-scope-menu thin-scrollbar nodrag nopan nowheel">
+          <div className="linear-scope-menu thin-scrollbar nodrag nopan nowheel">
             {items.length > 4 && (
               <div className="linear-scope-search">
                 <Search size={13} aria-hidden="true" />

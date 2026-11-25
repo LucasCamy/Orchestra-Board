@@ -404,12 +404,19 @@ button { font: inherit; color: inherit; }
   transform: rotate(180deg);
   color: var(--accent);
 }
+.linear-scope-control:has(.linear-scope-trigger[aria-expanded='true']),
+.linear-scope-field:has(.linear-scope-trigger[aria-expanded='true']) {
+  z-index: 50;
+}
 .linear-scope-menu {
-  position: absolute;
+  position: absolute !important;
   top: calc(100% + 4px);
   left: 0;
-  right: 0;
   width: 100%;
+  max-width: 100%;
+  max-height: 280px;
+  display: flex;
+  flex-direction: column;
   box-sizing: border-box;
   padding: 4px;
   border: 1px solid var(--border);
